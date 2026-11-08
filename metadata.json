@@ -1,0 +1,6 @@
+{
+  "name": "Anchor Child",
+  "description": "Anchor Child companion app for transparent family digital wellbeing, screen-time schedules, safety check-ins, SOS, and collaborative house rules.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

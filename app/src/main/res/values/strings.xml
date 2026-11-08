@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Anchor Child</string>
+    <string name="accessibility_service_label">Anchor Child App Limit Companion</string>
+    <string name="accessibility_service_description">Helps enforce agreed family screen-time schedules and friendly bedtime/study lockouts. Anchor never reads private messages, keystrokes, or personal photos.</string>
+    <string name="device_admin_label">Anchor Child Tamper Protection</string>
+    <string name="device_admin_description">Protects your agreed family pairing and allows bedtime screen lockouts.</string>
+    <string name="notification_listener_label">Anchor Child Focus Notification Shield</string>
+</resources>

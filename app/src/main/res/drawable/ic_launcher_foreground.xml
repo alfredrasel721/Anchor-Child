@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Trust Shield Ring -->
+    <path
+        android:fillColor="#94F1D6"
+        android:pathData="M54,24 L76,33 L76,53 C76,68.5 66.6,81.8 54,86 C41.4,81.8 32,68.5 32,53 L32,33 Z" />
+    <!-- Inner Shield Core -->
+    <path
+        android:fillColor="#006B58"
+        android:pathData="M54,29 L71,36.2 L71,52.5 C71,65.2 63.6,76.3 54,80 C44.4,76.3 37,65.2 37,52.5 L37,36.2 Z" />
+    <!-- Anchor Emblem -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,36 A4.5,4.5 0 1,1 53.99,36 Z M52,44 L56,44 L56,68 L52,68 Z M44,50 L64,50 L64,53.5 L44,53.5 Z M41,58 L45,58 C45,63.5 49,67 54,67 C59,67 63,63.5 63,58 L67,58 C67,66 61.2,71 54,71 C46.8,71 41,66 41,58 Z" />
+</vector>
