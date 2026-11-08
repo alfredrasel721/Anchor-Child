@@ -23,6 +23,6 @@ class ExampleUnitTest {
         assertEquals(uid, household.ownerUid)
 
         val children = AnchorSeedData.defaultChildren(uid)
-        assertTrue(children.any { it.childId == "leo_01" && it.familyId == household.familyId })
+        assertTrue(children.any { it.childId == "child_leo" && it.familyId == household.familyId })
     }
 }

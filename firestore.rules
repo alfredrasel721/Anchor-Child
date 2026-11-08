@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // ===============================================================
-    // Helper Functions (Compatible with Anchor Parent & Child Apps)
+    // Helper Functions — Zero-Trust Parent & Paired Child Authorization
     // ===============================================================
     function isAuthenticated() {
       return request.auth != null;
@@ -12,42 +12,43 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isDocOwner() {
-      return isAuthenticated() && resource != null && resource.data.ownerUid == request.auth.uid;
-    }
-
     function isFamilyPathOwner(familyId) {
       return isAuthenticated() && familyId == ('fam_' + request.auth.uid);
     }
 
+    function isDocOwner() {
+      return isAuthenticated() && resource != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    function isParentOfFamily(familyId) {
+      return isFamilyPathOwner(familyId);
+    }
+
     function isPairedChildDevice(familyId) {
       return isAuthenticated() &&
-        exists(/databases/$(database)/documents/families/$(familyId)/pairedDevices/$(request.auth.uid));
+        exists(/databases/$(database)/documents/families/$(familyId)/pairedDevices/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/families/$(familyId)/pairedDevices/$(request.auth.uid)).data.status == 'ACTIVE';
+    }
+
+    function pairedChildIdFor(familyId) {
+      return get(/databases/$(database)/documents/families/$(familyId)/pairedDevices/$(request.auth.uid)).data.childId;
     }
 
     function canReadFamilyDoc(familyId) {
-      return isFamilyPathOwner(familyId) || isDocOwner() || isPairedChildDevice(familyId);
+      return isParentOfFamily(familyId) || isDocOwner() || isPairedChildDevice(familyId);
     }
 
-    function canAccessFamilyCollection(familyId) {
-      return isFamilyPathOwner(familyId) || isPairedChildDevice(familyId);
+    function canListFamilySubcollection(familyId) {
+      return isParentOfFamily(familyId) || isPairedChildDevice(familyId);
     }
 
-    function isCreatingAsOwnerOrMember(familyId) {
-      return isAuthenticated() && (
-        (isFamilyPathOwner(familyId) && request.resource.data.ownerUid == request.auth.uid) ||
-        isPairedChildDevice(familyId)
-      );
+    function isCreatingAsParentOwner(familyId) {
+      return isParentOfFamily(familyId) && request.resource.data.ownerUid == request.auth.uid;
     }
 
-    function canUpdateFamilySubdoc(familyId) {
-      return ((isFamilyPathOwner(familyId) && isDocOwner()) || isPairedChildDevice(familyId)) && ownerUnchanged();
+    function isUpdatingAsParentOwner(familyId) {
+      return isParentOfFamily(familyId) && isDocOwner() && ownerUnchanged();
     }
-
-    function isCreatingAsOwner(familyId) {
-      return isFamilyPathOwner(familyId) && request.resource.data.ownerUid == request.auth.uid;
-    }
-
 
     function ownerUnchanged() {
       return !('ownerUid' in request.resource.data) ||
@@ -58,6 +59,50 @@ service cloud.firestore {
       return val is string && val.size() >= minLen && val.size() <= maxLen;
     }
 
+    // ===============================================================
+    // Cryptographic / Atomic Pairing Code Redemption Verification
+    // Prevents arbitrary self-registration, expired codes, and code reuse
+    // ===============================================================
+    function isValidPairingRedemption(familyId, deviceUid, data) {
+      let codePath = /databases/$(database)/documents/families/$(familyId)/pairingCodes/$(data.codeId);
+      let codeBefore = get(codePath).data;
+      let codeAfter = getAfter(codePath).data;
+      return isOwner(deviceUid) &&
+        data.deviceUid == deviceUid &&
+        data.familyId == familyId &&
+        data.status == 'ACTIVE' &&
+        validString(data.codeId, 1, 120) &&
+        validString(data.redeemedCode, 4, 20) &&
+        validString(data.childId, 1, 120) &&
+        codeBefore != null &&
+        codeBefore.familyId == familyId &&
+        codeBefore.childId == data.childId &&
+        codeBefore.code == data.redeemedCode &&
+        codeBefore.status == 'ACTIVE' &&
+        codeBefore.expiresAtEpochMs is int &&
+        codeBefore.expiresAtEpochMs > request.time.toMillis() &&
+        codeAfter.status == 'CONSUMED' &&
+        codeAfter.redeemedByUid == deviceUid;
+    }
+
+    function isValidChildPairingCodeConsumption(familyId, codeId) {
+      return isAuthenticated() &&
+        resource != null &&
+        resource.data.familyId == familyId &&
+        resource.data.status == 'ACTIVE' &&
+        resource.data.expiresAtEpochMs > request.time.toMillis() &&
+        request.resource.data.code == resource.data.code &&
+        request.resource.data.childId == resource.data.childId &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.expiresAtEpochMs == resource.data.expiresAtEpochMs &&
+        request.resource.data.status == 'CONSUMED' &&
+        request.resource.data.redeemedByUid == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/families/$(familyId)/pairedDevices/$(request.auth.uid)).data.codeId == codeId;
+    }
+
+    // ===============================================================
+    // Entity Schema Validators
+    // ===============================================================
     function isValidUserProfile(data, userId) {
       return data.uid == userId &&
         validString(data.displayName, 1, 120) &&
@@ -82,6 +127,20 @@ service cloud.firestore {
         data.age is int && data.age >= 1 && data.age <= 25 &&
         data.dailyAllowanceMinutes is int && data.dailyAllowanceMinutes >= 0 && data.dailyAllowanceMinutes <= 1440 &&
         data.usedMinutesToday is int && data.usedMinutesToday >= 0 && data.usedMinutesToday <= 1440;
+    }
+
+    // Paired child can ONLY update device telemetry & usedMinutesToday on their assigned childId;
+    // cannot alter dailyAllowanceMinutes, ownerUid, or familyId!
+    function isValidChildTelemetryUpdate(familyId, childId) {
+      return (
+        isParentOfFamily(familyId) ||
+        (isPairedChildDevice(familyId) && pairedChildIdFor(familyId) == childId)
+      ) &&
+      ownerUnchanged() &&
+      request.resource.data.familyId == resource.data.familyId &&
+      request.resource.data.childId == resource.data.childId &&
+      request.resource.data.dailyAllowanceMinutes == resource.data.dailyAllowanceMinutes &&
+      isValidChildProfile(request.resource.data, familyId);
     }
 
     function isValidPairingCode(data, familyId) {
@@ -166,6 +225,17 @@ service cloud.firestore {
         data.status in ['IN_PROGRESS', 'READY_FOR_REVIEW', 'COMPLETED'];
     }
 
+    // Child can mark task completedByChild / READY_FOR_REVIEW, but cannot self-approve (approvedByParent)
+    function isValidChildTaskUpdate(familyId) {
+      return isPairedChildDevice(familyId) &&
+        ownerUnchanged() &&
+        request.resource.data.title == resource.data.title &&
+        request.resource.data.rewardSummary == resource.data.rewardSummary &&
+        request.resource.data.approvedByParent == resource.data.approvedByParent &&
+        request.resource.data.status in ['IN_PROGRESS', 'READY_FOR_REVIEW'] &&
+        isValidFamilyTask(request.resource.data, familyId);
+    }
+
     function isValidGuardianContact(data, familyId) {
       return data.familyId == familyId &&
         validString(data.guardianId, 1, 120) &&
@@ -175,7 +245,6 @@ service cloud.firestore {
         (('isPrimaryGuardian' in data && data.isPrimaryGuardian is bool) ||
          ('primaryGuardian' in data && data.primaryGuardian is bool));
     }
-
 
     function isValidPremiumConfig(data, familyId) {
       return data.familyId == familyId &&
@@ -198,110 +267,131 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    // Household root: ONLY Parent Owner can create/update/delete subscription & household settings
     match /families/{familyId} {
       allow get: if canReadFamilyDoc(familyId);
-      allow list: if canAccessFamilyCollection(familyId);
-      allow create: if isCreatingAsOwner(familyId) && isValidFamilyHousehold(request.resource.data);
+      allow list: if canListFamilySubcollection(familyId);
+      allow create: if isCreatingAsParentOwner(familyId) && isValidFamilyHousehold(request.resource.data);
+      allow update: if isUpdatingAsParentOwner(familyId) && isValidFamilyHousehold(request.resource.data);
+      allow delete: if isParentOfFamily(familyId) && isDocOwner();
 
-      allow update: if isDocOwner() && ownerUnchanged() && isValidFamilyHousehold(request.resource.data);
-      allow delete: if isDocOwner();
-
+      // Paired Devices: Cannot be self-registered without atomic consumption of a valid, active, un-expired PairingCode
       match /pairedDevices/{deviceUid} {
-        allow get: if isOwner(deviceUid) || isFamilyPathOwner(familyId);
-        allow list: if isFamilyPathOwner(familyId);
-        allow create, update: if (isOwner(deviceUid) || isFamilyPathOwner(familyId)) &&
-          request.resource.data.deviceUid == deviceUid &&
-          request.resource.data.familyId == familyId &&
-          validString(request.resource.data.childId, 1, 120);
-        allow delete: if isOwner(deviceUid) || isFamilyPathOwner(familyId);
+        allow get: if isOwner(deviceUid) || isParentOfFamily(familyId);
+        allow list: if isParentOfFamily(familyId);
+        allow create: if isParentOfFamily(familyId) ||
+          isValidPairingRedemption(familyId, deviceUid, request.resource.data);
+        allow update: if isParentOfFamily(familyId);
+        allow delete: if isParentOfFamily(familyId);
       }
 
+      // Child Profiles: Parent has full control; Paired Child can update telemetry only (cannot alter dailyAllowanceMinutes)
       match /children/{childId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidChildProfile(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidChildProfile(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidChildProfile(request.resource.data, familyId);
+        allow update: if (isUpdatingAsParentOwner(familyId) && isValidChildProfile(request.resource.data, familyId)) ||
+          isValidChildTelemetryUpdate(familyId, childId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Pairing Codes: Parent creates/revokes; Child can only atomically consume an ACTIVE, non-expired code
       match /pairingCodes/{codeId} {
-        allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidPairingCode(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidPairingCode(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow get: if isAuthenticated();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidPairingCode(request.resource.data, familyId);
+        allow update: if (isUpdatingAsParentOwner(familyId) && isValidPairingCode(request.resource.data, familyId)) ||
+          isValidChildPairingCodeConsumption(familyId, codeId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Parent-Controlled App Rules: Child can READ only; Child CANNOT create, modify, or delete rules
       match /appRules/{ruleId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidAppRule(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidAppRule(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidAppRule(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidAppRule(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Parent-Controlled Schedules: Child can READ only; Child CANNOT create, modify, or delete schedules
       match /schedules/{scheduleId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidScheduleRoutine(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidScheduleRoutine(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidScheduleRoutine(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidScheduleRoutine(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Parent-Controlled Safe Geofences: Child can READ only; Child CANNOT create, modify, or delete geofences
       match /geofences/{geofenceId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidSafeGeofence(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidSafeGeofence(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidSafeGeofence(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidSafeGeofence(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Safety Alerts & SOS Events: Both Parent and Paired Child can create alerts; only Parent can acknowledge/delete
       match /alerts/{alertId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidSafetyAlert(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidSafetyAlert(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if (isCreatingAsParentOwner(familyId) || isPairedChildDevice(familyId)) &&
+          isValidSafetyAlert(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidSafetyAlert(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Extra-Time & App Requests: Paired Child can create PENDING requests; only Parent can APPROVE or DECLINE
       match /requests/{requestId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidChildRequest(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidChildRequest(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if (
+          isCreatingAsParentOwner(familyId) ||
+          (isPairedChildDevice(familyId) && request.resource.data.status == 'PENDING')
+        ) && isValidChildRequest(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidChildRequest(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Family Chat Messages: Both Parent and Paired Child can post messages
       match /messages/{messageId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidFamilyMessage(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidFamilyMessage(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if (
+          isCreatingAsParentOwner(familyId) ||
+          (isPairedChildDevice(familyId) && request.resource.data.senderRole in ['CHILD', 'SYSTEM'])
+        ) && isValidFamilyMessage(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidFamilyMessage(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Shared Family Tasks: Parent creates/approves; Paired Child can mark READY_FOR_REVIEW
       match /tasks/{taskId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidFamilyTask(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidFamilyTask(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidFamilyTask(request.resource.data, familyId);
+        allow update: if (isUpdatingAsParentOwner(familyId) && isValidFamilyTask(request.resource.data, familyId)) ||
+          isValidChildTaskUpdate(familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Guardians: Parent-Controlled Only
       match /guardians/{guardianId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidGuardianContact(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidGuardianContact(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidGuardianContact(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidGuardianContact(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
 
+      // Premium Safeguards & Filter Configs: Parent-Controlled Only; Child can READ disclosures
       match /premiumConfigs/{configId} {
         allow get: if canReadFamilyDoc(familyId);
-        allow list: if canAccessFamilyCollection(familyId);
-        allow create: if isCreatingAsOwnerOrMember(familyId) && isValidPremiumConfig(request.resource.data, familyId);
-        allow update: if canUpdateFamilySubdoc(familyId) && isValidPremiumConfig(request.resource.data, familyId);
-        allow delete: if isDocOwner();
+        allow list: if canListFamilySubcollection(familyId);
+        allow create: if isCreatingAsParentOwner(familyId) && isValidPremiumConfig(request.resource.data, familyId);
+        allow update: if isUpdatingAsParentOwner(familyId) && isValidPremiumConfig(request.resource.data, familyId);
+        allow delete: if isParentOfFamily(familyId) && isDocOwner();
       }
     }
   }

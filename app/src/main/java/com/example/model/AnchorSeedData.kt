@@ -4,11 +4,10 @@ import com.google.firebase.Timestamp
 
 object AnchorSeedData {
 
-    fun defaultHousehold(uid: String): FamilyHousehold {
-        val familyId = "fam_$uid"
+    fun defaultHousehold(uid: String, familyId: String = "fam_$uid"): FamilyHousehold {
         return FamilyHousehold(
             familyId = familyId,
-            familyName = "Miller Family",
+            familyName = "Jenkins Household",
             ownerUid = uid,
             subscriptionTier = "PREMIUM_ANNUAL",
             subscriptionActive = true,
@@ -19,31 +18,30 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultChildren(uid: String): List<ChildProfile> {
-        val familyId = "fam_$uid"
+    fun defaultChildren(uid: String, familyId: String = "fam_$uid"): List<ChildProfile> {
         return listOf(
             ChildProfile(
-                childId = "leo_01",
+                childId = "child_leo",
                 familyId = familyId,
                 ownerUid = uid,
                 name = "Leo",
                 age = 11,
                 gradeLabel = "6th Grade",
-                avatarInitials = "LM",
+                avatarInitials = "LJ",
                 deviceName = "Leo's Pixel 7a",
                 deviceModel = "Google Pixel 7a",
                 osVersion = "Android 14",
                 batteryLevel = 84,
                 chargingStatus = "Discharging",
                 networkType = "Wi-Fi",
-                networkName = "Miller_Home_5G",
+                networkName = "Jenkins_Home_5G",
                 storageFreeGb = 42.6,
                 syncStatus = "ENFORCED",
                 lastSyncLabel = "Synced 12s ago",
                 usedMinutesToday = 80,
                 dailyAllowanceMinutes = 150,
                 currentMode = "Free Play Window",
-                locationLabel = "Lincoln Middle School",
+                locationLabel = "Oakridge Middle School",
                 latitude = 37.7749,
                 longitude = -122.4194,
                 knoxVerified = false,
@@ -53,27 +51,27 @@ object AnchorSeedData {
                 updatedAt = Timestamp.now()
             ),
             ChildProfile(
-                childId = "maya_02",
+                childId = "child_maya",
                 familyId = familyId,
                 ownerUid = uid,
                 name = "Maya",
                 age = 8,
                 gradeLabel = "3rd Grade",
-                avatarInitials = "MM",
+                avatarInitials = "MJ",
                 deviceName = "Maya's Galaxy Tab A9",
                 deviceModel = "Samsung SM-X110",
                 osVersion = "Android 14 (One UI 6)",
                 batteryLevel = 92,
                 chargingStatus = "Charging (AC)",
                 networkType = "Wi-Fi",
-                networkName = "Miller_Home_5G",
+                networkName = "Jenkins_Home_5G",
                 storageFreeGb = 28.4,
                 syncStatus = "ENFORCED",
                 lastSyncLabel = "Synced 25s ago",
                 usedMinutesToday = 45,
                 dailyAllowanceMinutes = 90,
                 currentMode = "Homework Focus",
-                locationLabel = "Miller Home Base",
+                locationLabel = "Jenkins Home Sanctuary",
                 latitude = 37.7812,
                 longitude = -122.4110,
                 knoxVerified = true,
@@ -85,30 +83,28 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultPairingCodes(uid: String): List<PairingCode> {
-        val familyId = "fam_$uid"
+    fun defaultPairingCodes(uid: String, familyId: String = "fam_$uid"): List<PairingCode> {
         return listOf(
             PairingCode(
-                codeId = "pair_leo_482915",
+                codeId = "pair_child_leo_482915",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 childName = "Leo",
                 code = "482915",
-                expiresAtEpochMs = System.currentTimeMillis() + 86_400_000L,
+                expiresAtEpochMs = System.currentTimeMillis() + 600_000L, // 10-minute expiration
                 status = "ACTIVE"
             )
         )
     }
 
-    fun defaultAppRules(uid: String): List<AppRule> {
-        val familyId = "fam_$uid"
+    fun defaultAppRules(uid: String, familyId: String = "fam_$uid"): List<AppRule> {
         return listOf(
             AppRule(
                 ruleId = "rule_minecraft",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "com.mojang.minecraftpe",
                 appName = "Minecraft",
                 category = "Games",
@@ -123,7 +119,7 @@ object AnchorSeedData {
                 ruleId = "rule_roblox",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "com.roblox.client",
                 appName = "Roblox",
                 category = "Games",
@@ -138,7 +134,7 @@ object AnchorSeedData {
                 ruleId = "rule_youtube",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "com.google.android.youtube",
                 appName = "YouTube Kids & Video",
                 category = "Entertainment",
@@ -153,7 +149,7 @@ object AnchorSeedData {
                 ruleId = "rule_duolingo",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "com.duolingo",
                 appName = "Duolingo Spanish",
                 category = "Education",
@@ -168,7 +164,7 @@ object AnchorSeedData {
                 ruleId = "rule_khan",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "org.khanacademy.android",
                 appName = "Khan Academy",
                 category = "Education",
@@ -183,7 +179,7 @@ object AnchorSeedData {
                 ruleId = "rule_spotify",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "com.spotify.music",
                 appName = "Spotify Kids Audio",
                 category = "Creativity & Audio",
@@ -198,7 +194,7 @@ object AnchorSeedData {
                 ruleId = "rule_tiktok",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 packageName = "com.zhiliaoapp.musically",
                 appName = "TikTok",
                 category = "Social",
@@ -212,73 +208,83 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultSchedules(uid: String): List<ScheduleRoutine> {
-        val familyId = "fam_$uid"
+    fun defaultSchedules(uid: String, familyId: String = "fam_$uid"): List<ScheduleRoutine> {
         return listOf(
             ScheduleRoutine(
                 scheduleId = "sched_school",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "School Focus Mode",
                 windowDescription = "08:00 AM - 03:15 PM",
                 daysSummary = "Mon, Tue, Wed, Thu, Fri",
                 modeCategory = "SCHOOL_FOCUS",
+                iconType = "SCHOOL",
                 allowedAppsSummary = "Phone, Family Chat, Calculator, Khan Academy, Google Docs",
+                ruleSummary = "Phone, Family Chat, Calculator, Khan Academy, Google Docs",
                 status = "ENFORCED",
+                syncStatus = "ENFORCED",
                 enabled = true
             ),
             ScheduleRoutine(
                 scheduleId = "sched_homework",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "After-School Study & Homework",
                 windowDescription = "04:00 PM - 05:30 PM",
                 daysSummary = "Mon - Fri",
                 modeCategory = "STUDY_WINDOW",
+                iconType = "SCHOOL",
                 allowedAppsSummary = "Education Apps, Duolingo, Khan Academy, Reference Browser",
+                ruleSummary = "Education Apps, Duolingo, Khan Academy, Reference Browser",
                 status = "ENFORCED",
+                syncStatus = "ENFORCED",
                 enabled = true
             ),
             ScheduleRoutine(
                 scheduleId = "sched_freeplay",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "Afternoon Free Play Window",
                 windowDescription = "05:30 PM - 08:30 PM",
                 daysSummary = "Daily",
                 modeCategory = "FREE_PLAY",
+                iconType = "CUSTOM",
                 allowedAppsSummary = "All Approved Games & Media within Daily Allowance",
+                ruleSummary = "All Approved Games & Media within Daily Allowance",
                 status = "ENFORCED",
+                syncStatus = "ENFORCED",
                 enabled = true
             ),
             ScheduleRoutine(
                 scheduleId = "sched_bedtime",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "Bedtime Wind-Down & Rest",
                 windowDescription = "08:30 PM - 07:00 AM",
                 daysSummary = "Sun - Thu (Fri/Sat 9:30 PM)",
                 modeCategory = "BEDTIME",
+                iconType = "BEDTIME",
                 allowedAppsSummary = "Alarm Clock, Spotify Calm Audio, Emergency SOS & Parents",
+                ruleSummary = "Alarm Clock, Spotify Calm Audio, Emergency SOS & Parents",
                 status = "ENFORCED",
+                syncStatus = "ENFORCED",
                 enabled = true
             )
         )
     }
 
-    fun defaultGeofences(uid: String): List<SafeGeofence> {
-        val familyId = "fam_$uid"
+    fun defaultGeofences(uid: String, familyId: String = "fam_$uid"): List<SafeGeofence> {
         return listOf(
             SafeGeofence(
                 geofenceId = "geo_home",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
-                name = "Miller Home Base",
+                childId = "child_leo",
+                name = "Jenkins Home Sanctuary",
                 radiusMeters = 120,
                 triggerSummary = "Arrive & Depart Notifications",
                 scheduleSummary = "Always Active",
@@ -291,8 +297,8 @@ object AnchorSeedData {
                 geofenceId = "geo_school",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
-                name = "Lincoln Middle School",
+                childId = "child_leo",
+                name = "Oakridge Middle School",
                 radiusMeters = 200,
                 triggerSummary = "Arrive 8:00 AM • Depart 3:15 PM",
                 scheduleSummary = "Weekdays 7:30 AM - 4:30 PM",
@@ -305,7 +311,7 @@ object AnchorSeedData {
                 geofenceId = "geo_grandma",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 name = "Grandma Elena's House",
                 radiusMeters = 150,
                 triggerSummary = "Arrival Check-In Enabled",
@@ -318,16 +324,15 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultAlerts(uid: String): List<SafetyAlert> {
-        val familyId = "fam_$uid"
+    fun defaultAlerts(uid: String, familyId: String = "fam_$uid"): List<SafetyAlert> {
         return listOf(
             SafetyAlert(
                 alertId = "alert_geo_school",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 childName = "Leo",
-                title = "Arrived at Lincoln Middle School",
+                title = "Arrived at Oakridge Middle School",
                 description = "Automatic safe-zone check-in verified within 200m boundary.",
                 category = "GEOFENCE",
                 severity = "INFO",
@@ -338,7 +343,7 @@ object AnchorSeedData {
                 alertId = "alert_sync_ok",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 childName = "Leo",
                 title = "Family Agreement Synced",
                 description = "Weekday study schedule and +20m Duolingo bonus applied.",
@@ -350,14 +355,13 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultRequests(uid: String): List<ChildRequest> {
-        val familyId = "fam_$uid"
+    fun defaultRequests(uid: String, familyId: String = "fam_$uid"): List<ChildRequest> {
         return listOf(
             ChildRequest(
                 requestId = "req_minecraft_15",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 childName = "Leo",
                 requestType = "EXTRA_TIME",
                 targetName = "Minecraft",
@@ -373,7 +377,7 @@ object AnchorSeedData {
                 requestId = "req_spotify_approved",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 childName = "Leo",
                 requestType = "EXTRA_TIME",
                 targetName = "Spotify Kids Audio",
@@ -389,7 +393,7 @@ object AnchorSeedData {
                 requestId = "req_roblox_declined",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 childName = "Leo",
                 requestType = "EXTRA_TIME",
                 targetName = "Roblox",
@@ -404,14 +408,13 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultMessages(uid: String): List<FamilyMessage> {
-        val familyId = "fam_$uid"
+    fun defaultMessages(uid: String, familyId: String = "fam_$uid"): List<FamilyMessage> {
         return listOf(
             FamilyMessage(
                 messageId = "msg_01",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 senderName = "Mom (Sarah)",
                 senderRole = "PARENT",
                 text = "Hi Leo! Hope science lab went great. Let me know when soccer practice wraps up.",
@@ -422,10 +425,10 @@ object AnchorSeedData {
                 messageId = "msg_02",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 senderName = "Anchor System",
                 senderRole = "SYSTEM",
-                text = "Check-In Shared: Leo marked 'I'm Safe & Arrived' at Lincoln Middle School.",
+                text = "Check-In Shared: Leo marked 'I'm Safe & Arrived' at Oakridge Middle School.",
                 isSystemEvent = true,
                 timestampLabel = "3:12 PM"
             ),
@@ -433,7 +436,7 @@ object AnchorSeedData {
                 messageId = "msg_03",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 senderName = "Leo",
                 senderRole = "CHILD",
                 text = "Finished my math worksheet early! Heading to the library tables now.",
@@ -443,14 +446,13 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultTasks(uid: String): List<FamilyTask> {
-        val familyId = "fam_$uid"
+    fun defaultTasks(uid: String, familyId: String = "fam_$uid"): List<FamilyTask> {
         return listOf(
             FamilyTask(
                 taskId = "task_math",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "Complete 20m Khan Academy Fractions Module",
                 rewardSummary = "+20m Bonus Game Time",
                 dueSummary = "Today, 5:30 PM",
@@ -462,7 +464,7 @@ object AnchorSeedData {
                 taskId = "task_backpack",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "Pack Soccer Gear & Charge Chromebook",
                 rewardSummary = "+15m Weekend Allowance + 10 Trust Pts",
                 dueSummary = "Today, 7:30 PM",
@@ -474,7 +476,7 @@ object AnchorSeedData {
                 taskId = "task_sleep_streak",
                 familyId = familyId,
                 ownerUid = uid,
-                childId = "leo_01",
+                childId = "child_leo",
                 title = "Dock Phone by 8:30 PM (5-Night Streak Pact)",
                 rewardSummary = "+30m Friday Movie & Game Night",
                 dueSummary = "Tonight, 8:30 PM",
@@ -485,14 +487,13 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultGuardians(uid: String): List<GuardianContact> {
-        val familyId = "fam_$uid"
+    fun defaultGuardians(uid: String, familyId: String = "fam_$uid"): List<GuardianContact> {
         return listOf(
             GuardianContact(
                 guardianId = "guard_mom",
                 familyId = familyId,
                 ownerUid = uid,
-                name = "Mom (Sarah Miller)",
+                name = "Mom (Sarah Jenkins)",
                 relationRole = "Primary Guardian",
                 emailOrPhone = "+15552348891",
                 isPrimaryGuardian = true,
@@ -505,7 +506,7 @@ object AnchorSeedData {
                 guardianId = "guard_dad",
                 familyId = familyId,
                 ownerUid = uid,
-                name = "Dad (Mark Miller)",
+                name = "Dad (Mark Jenkins)",
                 relationRole = "Co-Parent Guardian",
                 emailOrPhone = "+15552348892",
                 isPrimaryGuardian = false,
@@ -530,39 +531,43 @@ object AnchorSeedData {
         )
     }
 
-    fun defaultPremiumConfig(uid: String): PremiumFilterConfig {
-        val familyId = "fam_$uid"
+    fun defaultPremiumConfig(uid: String, familyId: String = "fam_$uid"): PremiumFilterConfig {
         return PremiumFilterConfig(
-            configId = "prem_leo_01",
+            configId = "prem_child_leo",
             familyId = familyId,
             ownerUid = uid,
-            childId = "leo_01",
-            webFilterProfile = "Pre-Teen Balanced (Ages 10-12)",
+            childId = "child_leo",
+            webFilterProfile = "BALANCED_GUARDIAN",
             blockedCategories = listOf(
-                "Adult & Mature Content",
-                "Gambling & Loot Box Casinos",
-                "Unmoderated Anonymous Chat",
-                "Phishing & Malware Domains"
+                "Adult & Explicit Content",
+                "Gambling, Betting & Loot Boxes",
+                "Violence, Hate & Extremism",
+                "Social Media Web Portals"
             ),
             whitelistedDomains = listOf(
                 "khanacademy.org",
+                "duolingo.com",
+                "pbskids.org",
                 "nasa.gov",
-                "scratch.mit.edu",
-                "nationalgeographic.com",
-                "duolingo.com"
+                "oakridgeschools.edu"
             ),
             blacklistedDomains = listOf(
-                "omegle-clone.example",
-                "unblocked-casino.example"
+                "omegle.com",
+                "4chan.org",
+                "discord.com/login",
+                "unblockedgames76.io"
             ),
-            socialShieldProfile = "Moderate Pre-Teen Shield",
+            socialShieldProfile = "SUPERVISED",
             discordDmWhitelistOnly = true,
             robloxChatFiltered = true,
             whatsappUnknownBlocked = true,
             youtubeRestrictedMode = true,
             notificationFilterEnabled = true,
-            notificationProtocol = "Hold Non-Urgent App Alerts During School & Bedtime",
-            liveSessionAuditCode = "AUD-9482-B"
+            notificationProtocol = "BATCHING",
+            batchMuteSocialDuringStudy = true,
+            blockGamingStreakPrompts = true,
+            allowLearningNotifications = true,
+            liveSessionAuditCode = "#LIV-84920"
         )
     }
 }

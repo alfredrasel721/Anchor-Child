@@ -10,6 +10,7 @@ import com.example.data.local.AnchorChildLocalDatabase
 import com.example.data.local.CachedAppRuleEntity
 import com.example.data.local.CachedScheduleEntity
 import com.example.data.local.OfflineSyncQueueEntity
+import com.example.data.local.PairingSessionStore
 import com.example.data.remote.AnchorRepository
 import com.example.model.AnchorSeedData
 import com.example.model.AppRule
@@ -51,8 +52,9 @@ data class AnchorChildUiState(
     val currentScreen: ChildScreenId = ChildScreenId.C03_TODAY_SCREEN_TIME,
     val screenHistory: List<ChildScreenId> = emptyList(),
     val isPaired: Boolean = true,
+    val pairedFamilyId: String = "",
     val pairingCodeInput: String = "482915",
-    val selectedChildId: String = "leo_01",
+    val selectedChildId: String = "child_leo",
     val household: FamilyHousehold = AnchorSeedData.defaultHousehold("preview"),
     val children: List<ChildProfile> = AnchorSeedData.defaultChildren("preview"),
     val pairingCodes: List<PairingCode> = AnchorSeedData.defaultPairingCodes("preview"),
@@ -85,6 +87,11 @@ data class AnchorChildUiState(
 
     val isEffectiveOnline: Boolean
         get() = isNetworkOnline && !isOfflineSimulated
+
+    val targetFamilyKey: String
+        get() = pairedFamilyId.ifBlank {
+            currentUser?.uid?.let { "fam_$it" } ?: household.familyId
+        }
 }
 
 class AnchorChildViewModel(application: Application) : AndroidViewModel(application) {
@@ -92,6 +99,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     private val repository = AnchorRepository(application)
     private val localDb = AnchorChildLocalDatabase.getInstance(application)
     private val localDao = localDb.childLocalDao()
+    private val pairingSessionStore = PairingSessionStore(application)
     val systemMonitor = DeviceSystemMonitor(application)
 
     private val _uiState = MutableStateFlow(AnchorChildUiState())
@@ -103,8 +111,27 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
 
     init {
         refreshSystemTelemetry()
+        observePersistedPairingSession()
         observeLocalOfflineDatabase()
         observeAuthChanges()
+    }
+
+    private fun observePersistedPairingSession() {
+        viewModelScope.launch {
+            pairingSessionStore.sessionFlow.collectLatest { session ->
+                if (session.isPaired && session.familyId.isNotBlank()) {
+                    _uiState.value = _uiState.value.copy(
+                        isPaired = true,
+                        pairedFamilyId = session.familyId,
+                        selectedChildId = session.childId
+                    )
+                    val user = _uiState.value.currentUser
+                    if (user != null) {
+                        startRealtimeHouseholdStreams(user, session.familyId)
+                    }
+                }
+            }
+        }
     }
 
     private fun observeLocalOfflineDatabase() {
@@ -123,7 +150,8 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                     authErrorMessage = null
                 )
                 if (user != null) {
-                    startRealtimeHouseholdStreams(user)
+                    val activeFamId = _uiState.value.pairedFamilyId.ifBlank { "fam_${user.uid}" }
+                    startRealtimeHouseholdStreams(user, activeFamId)
                 } else {
                     firestoreListenersJob?.cancel()
                 }
@@ -131,45 +159,49 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun startRealtimeHouseholdStreams(user: FirebaseUser) {
+    private fun startRealtimeHouseholdStreams(user: FirebaseUser, familyIdOrUid: String) {
         firestoreListenersJob?.cancel()
         firestoreListenersJob = viewModelScope.launch {
             val uid = user.uid
-            try {
-                repository.ensureSeeded(
-                    uid = uid,
-                    displayName = user.displayName ?: "Leo Miller",
-                    email = user.email ?: "leo@anchor.family"
-                )
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    statusBannerMessage = "Using cached local rules while syncing household: ${e.localizedMessage ?: "Offline"}"
-                )
+            val targetFamily = familyIdOrUid.ifBlank { "fam_$uid" }
+
+            if (targetFamily == "fam_$uid") {
+                try {
+                    repository.ensureSeeded(
+                        uid = uid,
+                        displayName = user.displayName ?: "Leo Jenkins",
+                        email = user.email ?: "leo@anchor.family"
+                    )
+                } catch (e: Exception) {
+                    _uiState.value = _uiState.value.copy(
+                        statusBannerMessage = "Using cached local rules while connecting: ${e.localizedMessage ?: "Offline"}"
+                    )
+                }
             }
 
             launch {
-                repository.observeHousehold(uid).collectLatest { household ->
+                repository.observeHousehold(targetFamily).collectLatest { household ->
                     if (household != null) {
                         _uiState.value = _uiState.value.copy(household = household)
                     }
                 }
             }
             launch {
-                repository.observeChildren(uid).collectLatest { list ->
+                repository.observeChildren(targetFamily).collectLatest { list ->
                     if (list.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(children = list)
                     }
                 }
             }
             launch {
-                repository.observePairingCodes(uid).collectLatest { codes ->
+                repository.observePairingCodes(targetFamily).collectLatest { codes ->
                     if (codes.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(pairingCodes = codes)
                     }
                 }
             }
             launch {
-                repository.observeAppRules(uid).collectLatest { rules ->
+                repository.observeAppRules(targetFamily).collectLatest { rules ->
                     if (rules.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(appRules = rules)
                         cacheAppRulesLocally(rules)
@@ -177,7 +209,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
             launch {
-                repository.observeSchedules(uid).collectLatest { schedules ->
+                repository.observeSchedules(targetFamily).collectLatest { schedules ->
                     if (schedules.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(schedules = schedules)
                         cacheSchedulesLocally(schedules)
@@ -185,49 +217,49 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
             launch {
-                repository.observeGeofences(uid).collectLatest { geos ->
+                repository.observeGeofences(targetFamily).collectLatest { geos ->
                     if (geos.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(geofences = geos)
                     }
                 }
             }
             launch {
-                repository.observeAlerts(uid).collectLatest { alerts ->
+                repository.observeAlerts(targetFamily).collectLatest { alerts ->
                     if (alerts.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(alerts = alerts)
                     }
                 }
             }
             launch {
-                repository.observeRequests(uid).collectLatest { requests ->
+                repository.observeRequests(targetFamily).collectLatest { requests ->
                     if (requests.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(requests = requests)
                     }
                 }
             }
             launch {
-                repository.observeMessages(uid).collectLatest { messages ->
+                repository.observeMessages(targetFamily).collectLatest { messages ->
                     if (messages.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(messages = messages)
                     }
                 }
             }
             launch {
-                repository.observeTasks(uid).collectLatest { tasks ->
+                repository.observeTasks(targetFamily).collectLatest { tasks ->
                     if (tasks.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(tasks = tasks)
                     }
                 }
             }
             launch {
-                repository.observeGuardians(uid).collectLatest { guardians ->
+                repository.observeGuardians(targetFamily).collectLatest { guardians ->
                     if (guardians.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(guardians = guardians)
                     }
                 }
             }
             launch {
-                repository.observePremiumConfigs(uid).collectLatest { configs ->
+                repository.observePremiumConfigs(targetFamily).collectLatest { configs ->
                     configs.firstOrNull()?.let { prem ->
                         _uiState.value = _uiState.value.copy(premiumConfig = prem)
                     }
@@ -421,11 +453,11 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
 
         val uid = _uiState.value.currentUser?.uid
         if (uid != null && _uiState.value.isEffectiveOnline) {
+            val targetFam = _uiState.value.targetFamilyKey
             viewModelScope.launch {
                 try {
-                    repository.updateChildDeviceTelemetry(uid, updatedChild)
+                    repository.updateChildDeviceTelemetry(targetFam, updatedChild)
                 } catch (_: Exception) {
-                    // Handled by structured FirestoreErrorHandler
                 }
             }
         }
@@ -450,22 +482,31 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 if (it.childId == updatedChild.childId) updatedChild else it
             }
             _uiState.value = _uiState.value.copy(
-                children = updatedChildren,
-                statusBannerMessage = "Location & telemetry synced (${updatedChild.locationLabel})"
+                children = updatedChildren
             )
 
             val uid = _uiState.value.currentUser?.uid
             if (uid != null && _uiState.value.isEffectiveOnline) {
                 try {
-                    repository.updateChildDeviceTelemetry(uid, updatedChild)
-                } catch (_: Exception) {
+                    repository.updateChildDeviceTelemetry(_uiState.value.targetFamilyKey, updatedChild)
+                    _uiState.value = _uiState.value.copy(
+                        statusBannerMessage = "Location & telemetry synced to Anchor Cloud (${updatedChild.locationLabel})"
+                    )
+                } catch (e: Exception) {
+                    _uiState.value = _uiState.value.copy(
+                        statusBannerMessage = "GPS updated locally; cloud sync failed: ${e.localizedMessage ?: "Permission or network error"}"
+                    )
                 }
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    statusBannerMessage = "GPS updated locally (${updatedChild.locationLabel})"
+                )
             }
         }
     }
 
     // ========================================================================
-    // Pairing Flow (Screen C-01)
+    // Secure Pairing Flow (Screen C-01)
     // ========================================================================
 
     fun updatePairingCodeInput(code: String) {
@@ -479,37 +520,54 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
 
     fun submitPairingCode() {
         val code = _uiState.value.pairingCodeInput.trim()
-        if (code.length < 4) {
+        if (code.length < 6) {
             _uiState.value = _uiState.value.copy(
-                statusBannerMessage = "Please enter the 6-digit pairing code shown on your Parent App."
+                statusBannerMessage = "Please enter the complete 6-digit pairing code shown on your Parent App."
             )
             return
         }
 
         val child = _uiState.value.activeChild
-        val uid = _uiState.value.currentUser?.uid
+        val user = _uiState.value.currentUser
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
-                repository.claimPairingCode(
-                    uid = uid,
-                    code = code,
-                    childId = child.childId,
+            if (user != null && _uiState.value.isEffectiveOnline) {
+                val targetFam = _uiState.value.pairedFamilyId.ifBlank { "fam_${user.uid}" }
+                val redemption = repository.redeemPairingCode(
+                    childUid = user.uid,
+                    targetFamilyIdOrUid = targetFam,
+                    rawCode = code,
+                    childIdHint = child.childId,
                     deviceName = child.deviceName,
                     deviceModel = child.deviceModel,
                     osVersion = child.osVersion
                 )
+                if (redemption.verified) {
+                    pairingSessionStore.saveVerifiedPairing(
+                        familyId = redemption.familyId,
+                        ownerUid = redemption.ownerUid,
+                        childId = redemption.childId,
+                        childName = redemption.childName,
+                        codeId = redemption.codeId
+                    )
+                    _uiState.value = _uiState.value.copy(
+                        isPaired = true,
+                        pairedFamilyId = redemption.familyId,
+                        selectedChildId = redemption.childId,
+                        statusBannerMessage = "Verified & paired with ${redemption.familyId} for ${redemption.childName}!",
+                        currentScreen = ChildScreenId.C02_PERMISSION_EDUCATION
+                    )
+                    startRealtimeHouseholdStreams(user, redemption.familyId)
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        statusBannerMessage = redemption.errorMessage
+                            ?: "Pairing code verification failed on server."
+                    )
+                }
             } else {
-                enqueueOfflineItem(
-                    actionType = "DEVICE_PAIRING",
-                    title = "Claim Pairing Code #$code",
-                    payloadSummary = "${child.name} (${child.deviceModel})"
+                _uiState.value = _uiState.value.copy(
+                    statusBannerMessage = "Sign in with Google while online so Anchor Cloud can verify and consume your one-time pairing code."
                 )
             }
-            _uiState.value = _uiState.value.copy(
-                isPaired = true,
-                statusBannerMessage = "Device paired with ${ _uiState.value.household.familyName } for ${child.name}!",
-                currentScreen = ChildScreenId.C02_PERMISSION_EDUCATION
-            )
         }
     }
 
@@ -538,7 +596,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             if (uid != null && _uiState.value.isEffectiveOnline) {
                 try {
                     val created = repository.submitChildRequest(
-                        uid = uid,
+                        familyIdOrUid = _uiState.value.targetFamilyKey,
                         childId = child.childId,
                         childName = child.name,
                         requestType = requestType,
@@ -558,9 +616,10 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            // Offline fallback / local state update
+            // Offline fallback / persistent local Room queue
+            val idempotencyKey = "req_${System.currentTimeMillis()}"
             val localReq = ChildRequest(
-                requestId = "req_local_${System.currentTimeMillis()}",
+                requestId = idempotencyKey,
                 familyId = _uiState.value.household.familyId,
                 ownerUid = uid ?: "local",
                 childId = child.childId,
@@ -572,20 +631,20 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 childNote = combinedNote,
                 usedTodaySummary = usedSummary,
                 status = "PENDING",
-                decisionSummary = if (_uiState.value.isEffectiveOnline) {
-                    "Sent just now • Waiting for Parent App response"
-                } else {
-                    "Queued offline • Will auto-send as soon as Wi-Fi/Cellular reconnects"
-                }
+                decisionSummary = "Queued in local Room storage • Will upload upon reconnection"
             )
             enqueueOfflineItem(
+                idempotencyKey = idempotencyKey,
                 actionType = "EXTRA_TIME_REQUEST",
                 title = "Request +${bonusMinutes}m for $targetName",
-                payloadSummary = combinedNote
+                payloadSummary = combinedNote,
+                targetName = targetName,
+                targetCategory = targetCategory,
+                bonusMinutes = bonusMinutes
             )
             _uiState.value = _uiState.value.copy(
                 requests = listOf(localReq) + _uiState.value.requests,
-                statusBannerMessage = "Request for $targetName (+${bonusMinutes}m) added to Parent Decision Inbox!",
+                statusBannerMessage = "Saved request for $targetName (+${bonusMinutes}m) to offline queue!",
                 currentScreen = ChildScreenId.C07_PARENT_DECISION_INBOX
             )
         }
@@ -637,13 +696,20 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val child = _uiState.value.activeChild
         val uid = _uiState.value.currentUser?.uid
         viewModelScope.launch {
+            val coords = systemMonitor.fetchCurrentGpsCoordinates()
+            val locationSummary = if (coords != null) {
+                "${child.locationLabel} (${String.format(Locale.US, "%.4f, %.4f", coords.first, coords.second)})"
+            } else {
+                child.locationLabel
+            }
+
             if (uid != null && _uiState.value.isEffectiveOnline) {
                 try {
                     val alert = repository.triggerChildSosBeacon(
-                        uid = uid,
+                        familyIdOrUid = _uiState.value.targetFamilyKey,
                         childId = child.childId,
                         childName = child.name,
-                        locationLabel = child.locationLabel,
+                        locationLabel = locationSummary,
                         batteryLevel = child.batteryLevel,
                         isPracticeDrill = isPracticeDrill
                     )
@@ -663,17 +729,18 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             enqueueOfflineItem(
+                idempotencyKey = "sos_${System.currentTimeMillis()}",
                 actionType = "SOS_BEACON",
                 title = if (isPracticeDrill) "SOS Practice Drill" else "URGENT SOS Emergency Beacon",
-                payloadSummary = "Location: ${child.locationLabel} • Battery ${child.batteryLevel}%"
+                payloadSummary = "Location: $locationSummary • Battery ${child.batteryLevel}%"
             )
             _uiState.value = _uiState.value.copy(
                 sosGraceCountdownSeconds = 0,
                 sosDispatchedActive = !isPracticeDrill,
                 statusBannerMessage = if (isPracticeDrill) {
-                    "SOS Practice Drill logged locally."
+                    "SOS Practice Drill queued locally."
                 } else {
-                    "SOS Emergency Beacon queued + ready for Carrier SMS fallback!"
+                    "SOS Emergency Beacon queued locally + ready for Carrier SMS fallback!"
                 }
             )
         }
@@ -686,7 +753,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             if (uid != null && _uiState.value.isEffectiveOnline) {
                 try {
                     val alert = repository.sendSafeZoneCheckIn(
-                        uid = uid,
+                        familyIdOrUid = _uiState.value.targetFamilyKey,
                         childId = child.childId,
                         childName = child.name,
                         checkInHeadline = checkInHeadline,
@@ -703,12 +770,13 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             enqueueOfflineItem(
+                idempotencyKey = "checkin_${System.currentTimeMillis()}",
                 actionType = "SAFE_CHECK_IN",
                 title = checkInHeadline,
                 payloadSummary = "${child.locationLabel} • Battery ${child.batteryLevel}%"
             )
             _uiState.value = _uiState.value.copy(
-                statusBannerMessage = "Check-In recorded: \"$checkInHeadline\" (${child.locationLabel})"
+                statusBannerMessage = "Check-In queued offline: \"$checkInHeadline\" (${child.locationLabel})"
             )
         }
     }
@@ -727,7 +795,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             if (uid != null && _uiState.value.isEffectiveOnline) {
                 try {
                     val msg = repository.sendFamilyMessage(
-                        uid = uid,
+                        familyIdOrUid = _uiState.value.targetFamilyKey,
                         childId = child.childId,
                         senderName = child.name,
                         senderRole = "CHILD",
@@ -742,8 +810,9 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
+            val idempotencyKey = "msg_${System.currentTimeMillis()}"
             val localMsg = FamilyMessage(
-                messageId = "msg_local_${System.currentTimeMillis()}",
+                messageId = idempotencyKey,
                 familyId = _uiState.value.household.familyId,
                 ownerUid = uid ?: "local",
                 childId = child.childId,
@@ -754,6 +823,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 timestampLabel = SimpleDateFormat("h:mm a", Locale.US).format(Date())
             )
             enqueueOfflineItem(
+                idempotencyKey = idempotencyKey,
                 actionType = "FAMILY_CHAT",
                 title = "Message to Family Chat",
                 payloadSummary = trimmed
@@ -769,7 +839,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             if (uid != null && _uiState.value.isEffectiveOnline) {
                 try {
-                    repository.markTaskCompletedByChild(uid, task)
+                    repository.markTaskCompletedByChild(_uiState.value.targetFamilyKey, task)
                 } catch (_: Exception) {
                 }
             }
@@ -853,7 +923,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         if (uid != null && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
-                    uid = uid,
+                    familyIdOrUid = _uiState.value.targetFamilyKey,
                     childId = child.childId,
                     childName = child.name,
                     sessionId = session.sessionId,
@@ -879,7 +949,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         if (uid != null && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
-                    uid = uid,
+                    familyIdOrUid = _uiState.value.targetFamilyKey,
                     childId = child.childId,
                     childName = child.name,
                     sessionId = session.sessionId,
@@ -908,7 +978,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         if (uid != null && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
-                    uid = uid,
+                    familyIdOrUid = _uiState.value.targetFamilyKey,
                     childId = child.childId,
                     childName = child.name,
                     sessionId = session.sessionId,
@@ -927,7 +997,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // ========================================================================
-    // Offline Sync Queue & Recovery (Screen C-15)
+    // Offline Sync Queue with Reliable Acknowledgements & Deduplication (C-15)
     // ========================================================================
 
     fun toggleSimulatedOfflineMode() {
@@ -937,7 +1007,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             statusBannerMessage = if (next) {
                 "Offline Mode active: Local Room rules remain enforced & actions queue locally."
             } else {
-                "Reconnected to Anchor Cloud • Flushing queued offline events..."
+                "Reconnected • Verifying and uploading queued offline events..."
             }
         )
         if (!next) {
@@ -948,27 +1018,111 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     fun flushOfflineQueueNow() {
         viewModelScope.launch {
             refreshSystemTelemetry()
-            localDao.markAllQueuedSynced()
-            delay(500L)
+            val uid = _uiState.value.currentUser?.uid
+            val isOnline = systemMonitor.isNetworkOnline() && !_uiState.value.isOfflineSimulated
+            if (uid == null || !isOnline) {
+                _uiState.value = _uiState.value.copy(
+                    statusBannerMessage = "Queued items remain safely stored in Room SQLite until signed in & online."
+                )
+                return@launch
+            }
+
+            val pendingItems = localDao.getPendingUnsyncedItems()
+            val child = _uiState.value.activeChild
+            val targetFam = _uiState.value.targetFamilyKey
+            var uploadedCount = 0
+
+            for (item in pendingItems) {
+                try {
+                    when (item.actionType) {
+                        "EXTRA_TIME_REQUEST" -> {
+                            repository.submitChildRequest(
+                                familyIdOrUid = targetFam,
+                                childId = child.childId,
+                                childName = child.name,
+                                requestType = "EXTRA_TIME",
+                                targetName = item.targetName.ifBlank { "Minecraft" },
+                                targetCategory = item.targetCategory.ifBlank { "Games" },
+                                requestedBonusMinutes = if (item.bonusMinutes > 0) item.bonusMinutes else 15,
+                                childNote = item.payloadSummary,
+                                usedTodaySummary = "${child.usedMinutesToday}m / ${child.dailyAllowanceMinutes}m",
+                                deterministicRequestId = item.idempotencyKey
+                            )
+                        }
+                        "SAFE_CHECK_IN" -> {
+                            repository.sendSafeZoneCheckIn(
+                                familyIdOrUid = targetFam,
+                                childId = child.childId,
+                                childName = child.name,
+                                checkInHeadline = item.title,
+                                locationLabel = child.locationLabel,
+                                batteryLevel = child.batteryLevel,
+                                deterministicAlertId = item.idempotencyKey
+                            )
+                        }
+                        "SOS_BEACON" -> {
+                            repository.triggerChildSosBeacon(
+                                familyIdOrUid = targetFam,
+                                childId = child.childId,
+                                childName = child.name,
+                                locationLabel = child.locationLabel,
+                                batteryLevel = child.batteryLevel,
+                                isPracticeDrill = item.title.contains("Practice", ignoreCase = true),
+                                deterministicAlertId = item.idempotencyKey
+                            )
+                        }
+                        "FAMILY_CHAT" -> {
+                            repository.sendFamilyMessage(
+                                familyIdOrUid = targetFam,
+                                childId = child.childId,
+                                senderName = child.name,
+                                senderRole = "CHILD",
+                                text = item.payloadSummary,
+                                isSystemEvent = false,
+                                deterministicMessageId = item.idempotencyKey
+                            )
+                        }
+                    }
+                    // Mark synced ONLY after server operation succeeds!
+                    localDao.markItemSynced(item.id)
+                    uploadedCount++
+                } catch (_: Exception) {
+                    localDao.incrementRetryCount(item.id)
+                }
+            }
+
             localDao.clearSyncedItems()
             _uiState.value = _uiState.value.copy(
-                isOfflineSimulated = false,
-                statusBannerMessage = "All local offline events & device telemetry synced with Parent App!"
+                statusBannerMessage = if (uploadedCount > 0) {
+                    "Verified & uploaded $uploadedCount queued offline event(s) to Anchor Cloud!"
+                } else if (pendingItems.isEmpty()) {
+                    "All device telemetry & family rules are in sync with Anchor Cloud."
+                } else {
+                    "Some queued items could not be verified and remain safely in local queue for retry."
+                }
             )
         }
     }
 
     private suspend fun enqueueOfflineItem(
+        idempotencyKey: String,
         actionType: String,
         title: String,
-        payloadSummary: String
+        payloadSummary: String,
+        targetName: String = "",
+        targetCategory: String = "",
+        bonusMinutes: Int = 0
     ) {
         val fmt = SimpleDateFormat("h:mm a", Locale.US)
         localDao.enqueueOfflineAction(
             OfflineSyncQueueEntity(
+                idempotencyKey = idempotencyKey,
                 actionType = actionType,
                 title = title,
                 payloadSummary = payloadSummary,
+                targetName = targetName,
+                targetCategory = targetCategory,
+                bonusMinutes = bonusMinutes,
                 createdAtLabel = fmt.format(Date()),
                 synced = false
             )

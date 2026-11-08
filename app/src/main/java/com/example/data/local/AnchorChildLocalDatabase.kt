@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -44,13 +45,21 @@ data class CachedScheduleEntity(
     val cachedAtMs: Long
 )
 
-@Entity(tableName = "offline_sync_queue")
+@Entity(
+    tableName = "offline_sync_queue",
+    indices = [Index(value = ["idempotencyKey"], unique = true)]
+)
 data class OfflineSyncQueueEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val actionType: String, // EXTRA_TIME_REQUEST | SAFE_CHECK_IN | TASK_COMPLETE | TELEMETRY_HEARTBEAT
+    val idempotencyKey: String = "op_${System.nanoTime()}",
+    val actionType: String, // EXTRA_TIME_REQUEST | SAFE_CHECK_IN | FAMILY_CHAT | SOS_BEACON | TASK_COMPLETE
     val title: String,
     val payloadSummary: String,
+    val targetName: String = "",
+    val targetCategory: String = "",
+    val bonusMinutes: Int = 0,
     val createdAtLabel: String,
+    val retryCount: Int = 0,
     val synced: Boolean = false
 )
 
@@ -71,11 +80,17 @@ interface AnchorChildLocalDao {
     @Query("SELECT * FROM offline_sync_queue ORDER BY id DESC")
     fun observeOfflineQueue(): Flow<List<OfflineSyncQueueEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Query("SELECT * FROM offline_sync_queue WHERE synced = 0 ORDER BY id ASC")
+    suspend fun getPendingUnsyncedItems(): List<OfflineSyncQueueEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun enqueueOfflineAction(item: OfflineSyncQueueEntity)
 
-    @Query("UPDATE offline_sync_queue SET synced = 1 WHERE synced = 0")
-    suspend fun markAllQueuedSynced()
+    @Query("UPDATE offline_sync_queue SET synced = 1 WHERE id = :itemId")
+    suspend fun markItemSynced(itemId: Long)
+
+    @Query("UPDATE offline_sync_queue SET retryCount = retryCount + 1 WHERE id = :itemId")
+    suspend fun incrementRetryCount(itemId: Long)
 
     @Query("DELETE FROM offline_sync_queue WHERE synced = 1")
     suspend fun clearSyncedItems()
@@ -87,7 +102,7 @@ interface AnchorChildLocalDao {
         CachedScheduleEntity::class,
         OfflineSyncQueueEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AnchorChildLocalDatabase : RoomDatabase() {

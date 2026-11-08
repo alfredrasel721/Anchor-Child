@@ -1,0 +1,13 @@
+{
+  "name": "anchor-family-cloud-functions",
+  "version": "1.0.0",
+  "description": "Trusted Firebase Cloud Functions for Anchor Parent & Anchor Child secure device pairing, brute-force protection, and SOS FCM dispatch.",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  }
+}
