@@ -46,7 +46,7 @@ class AnchorRepository(
 ) {
     constructor(context: Context) : this(createDefaultFirestore(context))
 
-    private val functions = FirebaseFunctions.getInstance("us-central1")
+    private val functions = FirebaseFunctions.getInstance("asia-south1")
 
     fun familyIdFor(uid: String): String =
         if (uid.startsWith("fam_")) uid else "fam_$uid"
