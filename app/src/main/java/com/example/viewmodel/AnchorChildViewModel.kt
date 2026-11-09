@@ -134,7 +134,6 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                         selectedChildId = "child_leo",
                         currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                         screenHistory = emptyList(),
-                        screenHistory = emptyList()
                     )
                 }
             }
@@ -210,7 +209,6 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                             pairedFamilyId = "",
                             currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                         screenHistory = emptyList(),
-                        screenHistory = emptyList()
                         )
                     }
                 } else {
@@ -220,7 +218,6 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                         pairedFamilyId = "",
                         currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                         screenHistory = emptyList(),
-                        screenHistory = emptyList()
                     )
                 }
             }
