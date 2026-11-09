@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -232,6 +233,27 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 return@launch
             }
 
+            launch {
+                repository.observePairedDeviceMembership(targetFamily, user.uid)
+                    .catch { error ->
+                        _uiState.value = _uiState.value.copy(
+                            statusBannerMessage = "Pairing membership listener paused: ${error.localizedMessage ?: "Reconnect to verify this device."}"
+                        )
+                    }
+                    .collectLatest { active ->
+                        if (!active) {
+                            pairingSessionStore.clearPairingSession()
+                            _uiState.value = _uiState.value.copy(
+                                isPaired = false,
+                                pairedFamilyId = "",
+                                selectedChildId = "child_leo",
+                                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                                statusBannerMessage = "Anchor Parent unpaired this device. Enter a new one-time code to reconnect."
+                            )
+                            firestoreListenersJob?.cancel()
+                        }
+                    }
+            }
             launch {
                 repository.observeHousehold(targetFamily).collectLatest { household ->
                     if (household != null) {
