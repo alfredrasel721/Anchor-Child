@@ -58,7 +58,7 @@ data class AnchorChildUiState(
     val selectedChildId: String = "child_leo",
     val household: FamilyHousehold = AnchorSeedData.defaultHousehold("preview"),
     val children: List<ChildProfile> = AnchorSeedData.defaultChildren("preview"),
-    val pairingCodes: List<PairingCode> = AnchorSeedData.defaultPairingCodes("preview"),
+    val pairingCodes: List<PairingCode> = emptyList(),
     val appRules: List<AppRule> = AnchorSeedData.defaultAppRules("preview"),
     val schedules: List<ScheduleRoutine> = AnchorSeedData.defaultSchedules("preview"),
     val geofences: List<SafeGeofence> = AnchorSeedData.defaultGeofences("preview"),
