@@ -157,7 +157,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 statusBannerMessage = "Saved pairing verified with ${verification.childName}."
             )
             startRealtimeHouseholdStreams(user, verification.familyId)
-        } else {
+        } else if (verification.serverResponded) {
             pairingSessionStore.clearPairingSession()
             firestoreListenersJob?.cancel()
             _uiState.value = _uiState.value.copy(
@@ -167,6 +167,14 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                 statusBannerMessage = verification.errorMessage
                     ?: "This device is no longer paired. Enter a new code from Anchor Parent."
+            )
+        } else {
+            firestoreListenersJob?.cancel()
+            _uiState.value = _uiState.value.copy(
+                isPaired = false,
+                pairedFamilyId = "",
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                statusBannerMessage = "Could not reach Anchor Cloud to verify this saved pairing. Your saved pairing is retained; reconnect and retry."
             )
         }
     }
@@ -454,6 +462,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val perms = systemMonitor.inspectPermissions()
         val (batteryPct, chargingLabel) = systemMonitor.readBatteryTelemetry()
         val (netType, netName) = systemMonitor.readNetworkTelemetry()
+        val wasOnline = _uiState.value.isNetworkOnline
         val isOnline = systemMonitor.isNetworkOnline()
         val freeGb = systemMonitor.readFreeStorageGb()
         val realUsage = systemMonitor.queryTodayRealUsageStats()
@@ -488,6 +497,16 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             isNetworkOnline = isOnline,
             children = updatedChildren
         )
+
+        if (!wasOnline && isOnline) {
+            viewModelScope.launch {
+                val session = pairingSessionStore.sessionFlow.first()
+                val user = _uiState.value.currentUser
+                if (user != null && session.isPaired && session.familyId.isNotBlank()) {
+                    restoreVerifiedPairingSession(user, session.familyId, session.childId)
+                }
+            }
+        }
 
         val uid = _uiState.value.currentUser?.uid
         if (uid != null && _uiState.value.isEffectiveOnline) {
