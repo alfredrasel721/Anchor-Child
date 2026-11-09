@@ -37,7 +37,8 @@ data class PairingRedemptionResult(
     val childId: String = "child_leo",
     val childName: String = "Leo",
     val codeId: String = "",
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val serverResponded: Boolean = false
 )
 
 class AnchorRepository(
@@ -395,7 +396,8 @@ class AnchorRepository(
                 childName = data["childName"] as? String ?: "Child",
                 codeId = data["codeId"] as? String ?: "",
                 errorMessage = if (data["verified"] as? Boolean == true) null
-                    else "The pairing service could not verify this code."
+                    else "The pairing service could not verify this code.",
+                serverResponded = true
             )
         } catch (e: Exception) {
             PairingRedemptionResult(
@@ -423,7 +425,8 @@ class AnchorRepository(
                 childId = data["childId"] as? String ?: childId,
                 childName = data["childName"] as? String ?: "Child",
                 codeId = data["codeId"] as? String ?: "",
-                errorMessage = if (verified) null else "This device is no longer paired to this family."
+                errorMessage = if (verified) null else "This device is no longer paired to this family.",
+                serverResponded = true
             )
         } catch (e: Exception) {
             PairingRedemptionResult(
