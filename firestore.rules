@@ -318,6 +318,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // The Parent's FCM topic is a server-only secret.
+    match /familyNotificationTopics/{familyId} {
+      allow read, write: if false;
+    }
+
     match /pairingCodeLookupIndexes/{codeId} {
       allow read, write: if false;
     }
