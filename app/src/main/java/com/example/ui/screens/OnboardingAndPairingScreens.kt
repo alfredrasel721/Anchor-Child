@@ -164,15 +164,23 @@ fun C01WelcomePairingScreen(
                             )
                         }
                         SemanticStatusBadge(
-                            status = if (uiState.currentUser != null) "VERIFIED" else "PENDING"
+                            status = when {
+                                uiState.isPaired -> "PAIRED"
+                                uiState.currentUser != null -> "SIGNED IN"
+                                else -> "PENDING"
+                            }
                         )
                     }
 
                     Text(
                         text = if (uiState.currentUser != null) {
-                            "Signed in as ${uiState.currentUser.displayName ?: uiState.currentUser.email}. Connected to household ${uiState.household.familyName} (${uiState.household.familyId})."
+                            if (uiState.isPaired) {
+                                "Signed in as ${uiState.currentUser.displayName ?: uiState.currentUser.email}. This device is linked to the verified family household."
+                            } else {
+                                "Signed in as ${uiState.currentUser.displayName ?: uiState.currentUser.email}. Enter the one-time code from Anchor Parent to link this device."
+                            }
                         } else {
-                            "Sign in with Google to synchronize live schedules, requests, and SOS alerts with the Anchor Parent App."
+                            "Sign in with Google to securely link this device to the Anchor Parent App."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -309,6 +317,9 @@ fun C01WelcomePairingScreen(
                     ) {
                         Button(
                             onClick = onSubmitPairing,
+                            enabled = uiState.currentUser != null &&
+                                uiState.isEffectiveOnline &&
+                                uiState.pairingCodeInput.filter { it.isDigit() }.length == 6,
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("verify_pairing_button"),
@@ -319,20 +330,11 @@ fun C01WelcomePairingScreen(
                         }
 
                         OutlinedButton(
-                            onClick = {
-                                onUpdatePairingCode("482915")
-                                onSubmitPairing()
-                            },
-                            modifier = Modifier.testTag("scan_qr_pairing_button"),
+                            onClick = { onUpdatePairingCode("") },
+                            modifier = Modifier.testTag("clear_pairing_code_button"),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
-                                contentDescription = "Use Active Code",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Auto-Fill")
+                            Text("Clear")
                         }
                     }
                 }
@@ -371,14 +373,22 @@ fun C01WelcomePairingScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    OutlinedButton(
-                        onClick = onNavigateToPermissions,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("goto_c02_permissions_button"),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Review Android Permissions (C-02)")
+                    if (uiState.isPaired) {
+                        OutlinedButton(
+                            onClick = onNavigateToPermissions,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("goto_c02_permissions_button"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Review Android Permissions (C-02)")
+                        }
+                    } else {
+                        Text(
+                            text = "Complete server-verified pairing before reviewing device permissions.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -586,6 +596,7 @@ fun C02PermissionEducationScreen(
         item {
             Button(
                 onClick = onContinueToDashboard,
+                enabled = uiState.isPaired,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
