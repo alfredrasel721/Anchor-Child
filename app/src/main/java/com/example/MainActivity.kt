@@ -66,10 +66,16 @@ import com.example.ui.theme.StitchPrimary
 import com.example.ui.theme.StitchSurface
 import com.example.ui.theme.StitchSurfaceContainerLow
 import com.example.viewmodel.AnchorChildViewModel
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initializeFirebaseSafely()
         enableEdgeToEdge()
         try {
             startService(Intent(this, AnchorMonitorForegroundService::class.java))
@@ -79,6 +85,30 @@ class MainActivity : ComponentActivity() {
             AnchorChildTheme {
                 AnchorChildAppRoot()
             }
+        }
+    }
+
+    private fun initializeFirebaseSafely() {
+        try {
+            val firebaseApp = FirebaseApp.initializeApp(this)
+                ?: FirebaseApp.initializeApp(
+                    this,
+                    FirebaseOptions.Builder()
+                        .setProjectId("demo-anchor-local")
+                        .setApplicationId("1:000000000000:android:0000000000000000")
+                        .setApiKey("AIzaSyDummyKeyForLocalRobolectricTest")
+                        .build()
+                )
+
+            // Keep debug attestation for local/CI builds; use Play Integrity in release builds.
+            val appCheck = FirebaseAppCheck.getInstance(firebaseApp)
+            if (BuildConfig.DEBUG) {
+                appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+            } else {
+                appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            }
+        } catch (_: Exception) {
+            // Cloud sign-in and pairing require the real Firebase google-services.json.
         }
     }
 }
