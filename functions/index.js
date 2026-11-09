@@ -1,341 +1,527 @@
 /**
- * Anchor Family — Trusted Firebase Cloud Functions Backend
- * Project: gen-lang-client-0963224775
- * Shared Database: ai-studio-android-anchorch-710012f1-419e-46fb-87fd-4e0fce481e8e
+ * Anchor Family — shared trusted backend for Anchor Parent and Anchor Child.
+ * Firebase project: gen-lang-client-0963224775
+ * Firestore database: ai-studio-android-anchorpa-a481c5e6-6428-45e8-9bf4-3e58b56cbd1e
  *
- * Implements:
- * 1. createPairingCode — Parent-only cryptographic 6-digit one-time code generation (10-min TTL)
- * 2. redeemPairingCode — Child authenticated verification, brute-force rate limit, atomic consumption & pairedDevices registration
- * 3. revokePairingCode — Parent-only revocation of active pairing codes or paired child devices
- * 4. onSafetyAlertCreated — Real-time FCM emergency notification dispatch to Parent devices on SOS
+ * Pairing secrets are never readable or writable by mobile clients. All pairing
+ * state transitions are performed with the Admin SDK in these callable functions.
  */
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-const admin = require('firebase-admin');
-const crypto = require('node:crypto');
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const admin = require("firebase-admin");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const crypto = require("node:crypto");
 
-admin.initializeApp();
-
-const DATABASE_ID =
-  process.env.FIRESTORE_DATABASE_ID ||
-  'ai-studio-android-anchorch-710012f1-419e-46fb-87fd-4e0fce481e8e';
-
-function getDb() {
-  return admin.firestore(DATABASE_ID);
+if (!admin.apps.length) {
+  admin.initializeApp();
 }
 
-const TEN_MINUTES_MS = 10 * 60 * 1000;
-const MAX_PAIRING_ATTEMPTS_PER_WINDOW = 5;
+const DATABASE_ID = "ai-studio-android-anchorpa-a481c5e6-6428-45e8-9bf4-3e58b56cbd1e";
+const PAIRING_TTL_MS = 10 * 60 * 1000;
+const MAX_REDEEM_ATTEMPTS = 5;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
+function getDb() {
+  return getFirestore(admin.app(), DATABASE_ID);
+}
+
+function normalizePairingCode(rawCode) {
+  const digits = String(rawCode || "").replace(/[^0-9]/g, "");
+  return digits.length === 6 ? digits : null;
+}
+
+function hashPairingCode(code) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+function requireAuth(request) {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Sign in before using Anchor pairing.");
+  }
+  return request.auth.uid;
+}
+
+function safeDeviceValue(value, fallback, maxLength) {
+  const normalized = String(value || fallback).trim();
+  return normalized.slice(0, maxLength) || fallback;
+}
+
 /**
- * 1. createPairingCode
- * Callable by the authenticated Family Owner (Parent).
+ * Parent-only: creates a six-digit, ten-minute, single-use code.
+ * Only a hash is stored; the raw code is returned once to the authenticated Parent.
  */
 exports.createPairingCode = onCall(async (request) => {
-  if (!request.auth || !request.auth.uid) {
-    throw new HttpsError('unauthenticated', 'Parent authentication is required.');
-  }
+  const parentUid = requireAuth(request);
+  const familyId = String(request.data && request.data.familyId || "").trim();
+  const childId = String(request.data && request.data.childId || "").trim();
+  const childName = safeDeviceValue(request.data && request.data.childName, "Child", 100);
 
-  const uid = request.auth.uid;
-  const { familyId, childId, childName } = request.data || {};
-  const expectedFamilyId = `fam_${uid}`;
-
-  if (!familyId || familyId !== expectedFamilyId) {
-    throw new HttpsError(
-      'permission-denied',
-      'Only the authenticated family owner can generate pairing codes for this household.'
-    );
-  }
-  if (!childId || typeof childId !== 'string') {
-    throw new HttpsError('invalid-argument', 'A valid childId is required.');
+  if (!familyId || familyId !== "fam_" + parentUid || !childId) {
+    throw new HttpsError("invalid-argument", "A valid owned familyId and childId are required.");
   }
 
   const db = getDb();
-  const nowMs = Date.now();
-  const expiresAtEpochMs = nowMs + TEN_MINUTES_MS;
+  const familyRef = db.doc("families/" + familyId);
+  const childRef = db.doc("families/" + familyId + "/children/" + childId);
+  const familySnap = await familyRef.get();
 
-  // Cryptographically secure 6-digit code
-  const rawDigits = crypto.randomInt(100000, 1000000).toString();
-  const formattedCode = `${rawDigits.slice(0, 3)}-${rawDigits.slice(3)}`;
-  const codeId = `pair_${childId}_${rawDigits}`;
+  if (!familySnap.exists || familySnap.data().ownerUid !== parentUid) {
+    throw new HttpsError("permission-denied", "Only the verified family owner can create pairing codes.");
+  }
 
-  const pairingDoc = {
-    codeId,
-    familyId,
-    ownerUid: uid,
-    childId,
-    childName: childName || 'Child',
-    code: rawDigits,
-    formattedCode,
-    expiresAtEpochMs,
-    status: 'ACTIVE',
-    attemptCount: 0,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  };
+  const childSnap = await childRef.get();
+  if (!childSnap.exists || childSnap.data().ownerUid !== parentUid ||
+      childSnap.data().familyId !== familyId || childSnap.data().childId !== childId) {
+    throw new HttpsError("not-found", "The selected child profile does not belong to this family.");
+  }
 
-  const batch = db.batch();
-  // Revoke any previous ACTIVE codes for the same childId
-  const existingCodes = await db
-    .collection('families')
-    .doc(familyId)
-    .collection('pairingCodes')
-    .where('childId', '==', childId)
-    .where('status', '==', 'ACTIVE')
-    .get();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = String(crypto.randomInt(100000, 1000000));
+    const codeHash = hashPairingCode(code);
+    const codeId = "pair_" + childId + "_" + crypto.randomUUID();
+    const nowMs = Date.now();
+    const expiresAtEpochMs = nowMs + PAIRING_TTL_MS;
+    const codeRef = db.doc("families/" + familyId + "/pairingCodes/" + codeId);
+    const lookupRef = db.doc("pairingCodeLookups/" + codeHash);
 
-  existingCodes.docs.forEach((docSnap) => {
-    batch.update(docSnap.ref, {
-      status: 'EXPIRED',
-      revokedAt: admin.firestore.FieldValue.serverTimestamp(),
+    const transactionResult = await db.runTransaction(async (tx) => {
+      const [currentChildSnap, lookupSnap] = await Promise.all([
+        tx.get(childRef),
+        tx.get(lookupRef),
+      ]);
+
+      if (!currentChildSnap.exists ||
+          currentChildSnap.data().ownerUid !== parentUid) {
+        throw new HttpsError("permission-denied", "Child profile ownership changed.");
+      }
+
+      if (lookupSnap.exists) {
+        return { collision: true };
+      }
+
+      const oldCodeId = String(currentChildSnap.data().activePairingCodeId || "");
+      let oldCodeRef = null;
+      let oldCodeSnap = null;
+      let oldLookupRef = null;
+
+      if (oldCodeId) {
+        oldCodeRef = db.doc("families/" + familyId + "/pairingCodes/" + oldCodeId);
+        oldCodeSnap = await tx.get(oldCodeRef);
+        if (oldCodeSnap.exists && oldCodeSnap.data().codeHash) {
+          oldLookupRef = db.doc("pairingCodeLookups/" + oldCodeSnap.data().codeHash);
+          await tx.get(oldLookupRef);
+        }
+      }
+
+      if (oldCodeSnap && oldCodeSnap.exists && oldCodeSnap.data().status === "ACTIVE") {
+        tx.update(oldCodeRef, {
+          status: "REVOKED",
+          revoked: true,
+          revokedAtEpochMs: nowMs,
+        });
+      }
+      if (oldLookupRef) {
+        tx.delete(oldLookupRef);
+      }
+
+      tx.set(codeRef, {
+        codeId: codeId,
+        familyId: familyId,
+        ownerUid: parentUid,
+        childId: childId,
+        childName: childName,
+        code: "",
+        codeHash: codeHash,
+        expiresAtEpochMs: expiresAtEpochMs,
+        status: "ACTIVE",
+        revoked: false,
+        attemptCount: 0,
+        maxAttempts: MAX_REDEEM_ATTEMPTS,
+        consumedByChildUid: "",
+        consumedAtEpochMs: 0,
+        createdAtEpochMs: nowMs,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      tx.set(lookupRef, {
+        familyId: familyId,
+        codeId: codeId,
+        status: "ACTIVE",
+        expiresAtEpochMs: expiresAtEpochMs,
+        createdAtEpochMs: nowMs,
+      });
+
+      tx.update(childRef, {
+        activePairingCodeId: codeId,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return { collision: false };
     });
-  });
 
-  const codeRef = db
-    .collection('families')
-    .doc(familyId)
-    .collection('pairingCodes')
-    .doc(codeId);
-  batch.set(codeRef, pairingDoc);
+    if (!transactionResult.collision) {
+      return {
+        verified: true,
+        codeId: codeId,
+        familyId: familyId,
+        ownerUid: parentUid,
+        childId: childId,
+        childName: childName,
+        code: code.slice(0, 3) + "-" + code.slice(3),
+        expiresAtEpochMs: expiresAtEpochMs,
+        status: "ACTIVE",
+      };
+    }
+  }
 
-  await batch.commit();
-
-  return {
-    codeId,
-    familyId,
-    childId,
-    code: rawDigits,
-    formattedCode,
-    expiresAtEpochMs,
-    status: 'ACTIVE',
-  };
+  throw new HttpsError("resource-exhausted", "Could not allocate a unique pairing code. Please retry.");
 });
 
 /**
- * 2. redeemPairingCode
- * Callable by the authenticated Child device.
- * Enforces rate-limiting, validates expiration & single-use status, atomically marks CONSUMED,
- * and registers `/families/{familyId}/pairedDevices/{childUid}`.
+ * Child-only: redeems a code without requiring the Child to know the Parent's familyId.
+ * Invalid attempts are committed to the rate-limit document before the callable returns an error.
  */
 exports.redeemPairingCode = onCall(async (request) => {
-  if (!request.auth || !request.auth.uid) {
-    throw new HttpsError('unauthenticated', 'Child device must be signed in before pairing.');
+  const childUid = requireAuth(request);
+  const code = normalizePairingCode(request.data && request.data.code);
+
+  if (!code) {
+    throw new HttpsError("invalid-argument", "Enter the six-digit code shown in Anchor Parent.");
   }
 
-  const childUid = request.auth.uid;
-  const { familyId, code, deviceName, deviceModel, osVersion } = request.data || {};
-  const normalizedCode = String(code || '').replace(/[^0-9]/g, '');
-
-  if (!familyId || normalizedCode.length !== 6) {
-    throw new HttpsError(
-      'invalid-argument',
-      'A valid familyId and 6-digit pairing code are required.'
-    );
-  }
-
+  const deviceName = safeDeviceValue(request.data && request.data.deviceName, "Android Child Device", 100);
+  const deviceModel = safeDeviceValue(request.data && request.data.deviceModel, "Android", 100);
+  const osVersion = safeDeviceValue(request.data && request.data.osVersion, "Android", 50);
   const db = getDb();
-  const rateLimitRef = db.collection('pairingRateLimits').doc(childUid);
+  const nowMs = Date.now();
+  const codeHash = hashPairingCode(code);
+  const rateLimitRef = db.doc("pairingRateLimits/" + childUid);
+  const lookupRef = db.doc("pairingCodeLookups/" + codeHash);
 
-  return await db.runTransaction(async (tx) => {
-    const nowMs = Date.now();
-    const rateSnap = await tx.get(rateLimitRef);
-    let attempts = 0;
-    let windowStart = nowMs;
+  const outcome = await db.runTransaction(async (tx) => {
+    const [rateSnap, lookupSnap] = await Promise.all([
+      tx.get(rateLimitRef),
+      tx.get(lookupRef),
+    ]);
 
-    if (rateSnap.exists) {
-      const rateData = rateSnap.data();
-      if (nowMs - (rateData.windowStartMs || 0) < RATE_LIMIT_WINDOW_MS) {
-        attempts = rateData.attempts || 0;
-        windowStart = rateData.windowStartMs;
-      }
+    const rateData = rateSnap.exists ? rateSnap.data() : {};
+    const oldWindowStart = Number(rateData.windowStartEpochMs || 0);
+    const sameWindow = oldWindowStart > 0 && nowMs - oldWindowStart < RATE_LIMIT_WINDOW_MS;
+    const windowStartEpochMs = sameWindow ? oldWindowStart : nowMs;
+    const failedCount = sameWindow ? Number(rateData.failedCount || 0) : 0;
+
+    if (failedCount >= MAX_REDEEM_ATTEMPTS) {
+      return {
+        errorCode: "resource-exhausted",
+        errorMessage: "Too many attempts. Wait 15 minutes before trying again.",
+      };
     }
 
-    if (attempts >= MAX_PAIRING_ATTEMPTS_PER_WINDOW) {
-      throw new HttpsError(
-        'resource-exhausted',
-        'Too many pairing attempts. Please wait 15 minutes and generate a new code.'
-      );
-    }
-
-    const codesQuery = db
-      .collection('families')
-      .doc(familyId)
-      .collection('pairingCodes')
-      .where('code', '==', normalizedCode)
-      .limit(1);
-
-    const codesSnap = await tx.get(codesQuery);
-    if (codesSnap.empty) {
+    if (!lookupSnap.exists || lookupSnap.data().status !== "ACTIVE") {
       tx.set(rateLimitRef, {
-        uid: childUid,
-        attempts: attempts + 1,
-        windowStartMs: windowStart,
-        lastAttemptMs: nowMs,
+        childUid: childUid,
+        failedCount: failedCount + 1,
+        windowStartEpochMs: windowStartEpochMs,
+        lastAttemptEpochMs: nowMs,
       });
-      throw new HttpsError('not-found', 'Invalid pairing code.');
+      return {
+        errorCode: "not-found",
+        errorMessage: "Invalid or expired pairing code. Check the code in Anchor Parent.",
+      };
     }
 
-    const codeDoc = codesSnap.docs[0];
-    const codeData = codeDoc.data();
+    const lookup = lookupSnap.data();
+    const familyId = String(lookup.familyId || "");
+    const codeId = String(lookup.codeId || "");
+    if (!familyId || !codeId) {
+      tx.delete(lookupRef);
+      return {
+        errorCode: "failed-precondition",
+        errorMessage: "Pairing code is no longer valid. Ask the Parent to generate a new one.",
+      };
+    }
 
-    if (codeData.status !== 'ACTIVE') {
-      throw new HttpsError(
-        'failed-precondition',
-        `Pairing code has already been ${codeData.status.toLowerCase()}.`
-      );
+    const codeRef = db.doc("families/" + familyId + "/pairingCodes/" + codeId);
+    const familyRef = db.doc("families/" + familyId);
+    const childRef = db.doc("families/" + familyId + "/children/" + String(lookup.childId || ""));
+    const deviceRef = db.doc("families/" + familyId + "/pairedDevices/" + childUid);
+
+    const [codeSnap, familySnap, childSnap, deviceSnap] = await Promise.all([
+      tx.get(codeRef),
+      tx.get(familyRef),
+      tx.get(childRef),
+      tx.get(deviceRef),
+    ]);
+
+    if (!codeSnap.exists || !familySnap.exists || !childSnap.exists) {
+      tx.delete(lookupRef);
+      return {
+        errorCode: "failed-precondition",
+        errorMessage: "The Parent profile is no longer available. Ask the Parent to generate a new code.",
+      };
+    }
+
+    const codeData = codeSnap.data();
+    const familyData = familySnap.data();
+    const childData = childSnap.data();
+
+    if (codeData.status !== "ACTIVE" || codeData.codeHash !== codeHash ||
+        lookup.expiresAtEpochMs !== codeData.expiresAtEpochMs) {
+      tx.delete(lookupRef);
+      return {
+        errorCode: "failed-precondition",
+        errorMessage: "This pairing code has already been used or revoked.",
+      };
     }
 
     if (Number(codeData.expiresAtEpochMs || 0) <= nowMs) {
-      tx.update(codeDoc.ref, { status: 'EXPIRED' });
-      throw new HttpsError('deadline-exceeded', 'Pairing code has expired (10-minute limit).');
+      tx.update(codeRef, { status: "EXPIRED" });
+      tx.delete(lookupRef);
+      return {
+        errorCode: "deadline-exceeded",
+        errorMessage: "This pairing code expired. Ask the Parent for a new code.",
+      };
     }
 
-    const childId = codeData.childId;
-    const ownerUid = codeData.ownerUid;
+    if (familyData.ownerUid !== codeData.ownerUid ||
+        childData.ownerUid !== codeData.ownerUid ||
+        childData.familyId !== familyId ||
+        childData.childId !== codeData.childId) {
+      tx.delete(lookupRef);
+      return {
+        errorCode: "permission-denied",
+        errorMessage: "The pairing code does not match a valid family profile.",
+      };
+    }
 
-    // 1. Atomically consume the pairing code
-    tx.update(codeDoc.ref, {
-      status: 'CONSUMED',
-      redeemedByUid: childUid,
-      redeemedAtEpochMs: nowMs,
+    if (childData.pairedChildUid && childData.pairedChildUid !== childUid) {
+      return {
+        errorCode: "already-exists",
+        errorMessage: "This child profile is already paired to another device. Ask the Parent to unpair it first.",
+      };
+    }
+
+    if (deviceSnap.exists && deviceSnap.data().status === "PAIRED" &&
+        deviceSnap.data().childId !== codeData.childId) {
+      return {
+        errorCode: "already-exists",
+        errorMessage: "This account is already paired to another child profile.",
+      };
+    }
+
+    tx.update(codeRef, {
+      status: "CONSUMED",
+      consumedByChildUid: childUid,
+      consumedAtEpochMs: nowMs,
     });
+    tx.delete(lookupRef);
 
-    // 2. Register the paired child device membership record
-    const pairedDeviceRef = db
-      .collection('families')
-      .doc(familyId)
-      .collection('pairedDevices')
-      .doc(childUid);
-
-    tx.set(pairedDeviceRef, {
-      deviceUid: childUid,
-      familyId,
-      ownerUid,
-      childId,
-      codeId: codeDoc.id,
-      redeemedCode: normalizedCode,
-      deviceName: deviceName || 'Android Child Device',
-      deviceModel: deviceModel || 'Android',
-      osVersion: osVersion || 'Android',
-      status: 'ACTIVE',
+    tx.set(deviceRef, {
+      deviceId: childUid,
+      childUid: childUid,
+      familyId: familyId,
+      ownerUid: codeData.ownerUid,
+      childId: codeData.childId,
+      childName: codeData.childName || "Child",
+      codeId: codeId,
+      redeemedCode: "",
+      deviceName: deviceName,
+      deviceModel: deviceModel,
+      osVersion: osVersion,
+      status: "PAIRED",
       pairedAtEpochMs: nowMs,
+      lastHeartbeatEpochMs: nowMs,
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // 3. Update the child profile telemetry & sync status
-    const childRef = db
-      .collection('families')
-      .doc(familyId)
-      .collection('children')
-      .doc(childId);
+    tx.set(childRef, {
+      pairedChildUid: childUid,
+      activePairingCodeId: FieldValue.delete(),
+      deviceName: deviceName,
+      deviceModel: deviceModel,
+      osVersion: osVersion,
+      syncStatus: "ENFORCED",
+      lastSyncLabel: "Paired & verified",
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
 
-    tx.set(
-      childRef,
-      {
-        syncStatus: 'ENFORCED',
-        deviceName: deviceName || 'Android Child Device',
-        deviceModel: deviceModel || 'Android',
-        osVersion: osVersion || 'Android',
-        lastSyncLabel: 'Paired & Verified via Anchor Cloud',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    // Reset rate limit counter on success
     tx.delete(rateLimitRef);
 
     return {
       verified: true,
-      familyId,
-      ownerUid,
-      childId,
-      childName: codeData.childName || 'Leo',
-      codeId: codeDoc.id,
+      familyId: familyId,
+      ownerUid: codeData.ownerUid,
+      childId: codeData.childId,
+      childName: codeData.childName || "Child",
+      codeId: codeId,
+      deviceId: childUid,
+      pairedAtEpochMs: nowMs,
     };
   });
+
+  if (outcome.errorCode) {
+    throw new HttpsError(outcome.errorCode, outcome.errorMessage);
+  }
+  return outcome;
 });
 
-/**
- * 3. revokePairingCode
- * Callable by the authenticated Family Owner (Parent) to revoke an active code or unpair a device.
- */
+/** Parent-only: revoke a pending code or unpair a registered Child device. */
 exports.revokePairingCode = onCall(async (request) => {
-  if (!request.auth || !request.auth.uid) {
-    throw new HttpsError('unauthenticated', 'Parent authentication is required.');
-  }
+  const parentUid = requireAuth(request);
+  const familyId = String(request.data && request.data.familyId || "").trim();
+  const codeId = String(request.data && request.data.codeId || "").trim();
+  const deviceUid = String(request.data && request.data.deviceUid || "").trim();
 
-  const uid = request.auth.uid;
-  const { familyId, codeId, deviceUid } = request.data || {};
-  if (!familyId || familyId !== `fam_${uid}`) {
-    throw new HttpsError('permission-denied', 'Not authorized for this family household.');
+  if (!familyId || familyId !== "fam_" + parentUid || (!codeId && !deviceUid)) {
+    throw new HttpsError("invalid-argument", "A valid familyId and codeId or deviceUid are required.");
   }
 
   const db = getDb();
-  const batch = db.batch();
-
-  if (codeId) {
-    const codeRef = db
-      .collection('families')
-      .doc(familyId)
-      .collection('pairingCodes')
-      .doc(codeId);
-    batch.update(codeRef, {
-      status: 'EXPIRED',
-      revokedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  const familyRef = db.doc("families/" + familyId);
+  const familySnap = await familyRef.get();
+  if (!familySnap.exists || familySnap.data().ownerUid !== parentUid) {
+    throw new HttpsError("permission-denied", "Only the family owner can revoke pairing.");
   }
 
-  if (deviceUid) {
-    const devRef = db
-      .collection('families')
-      .doc(familyId)
-      .collection('pairedDevices')
-      .doc(deviceUid);
-    batch.delete(devRef);
+  const nowMs = Date.now();
+  await db.runTransaction(async (tx) => {
+    let codeRef = null;
+    let codeSnap = null;
+    let lookupRef = null;
+    let deviceRef = null;
+    let deviceSnap = null;
+    let childRef = null;
+    let childSnap = null;
+
+    if (codeId) {
+      codeRef = db.doc("families/" + familyId + "/pairingCodes/" + codeId);
+      codeSnap = await tx.get(codeRef);
+      if (codeSnap.exists && codeSnap.data().codeHash) {
+        lookupRef = db.doc("pairingCodeLookups/" + codeSnap.data().codeHash);
+        await tx.get(lookupRef);
+      }
+    }
+
+    if (deviceUid) {
+      deviceRef = db.doc("families/" + familyId + "/pairedDevices/" + deviceUid);
+      deviceSnap = await tx.get(deviceRef);
+      if (deviceSnap.exists) {
+        childRef = db.doc("families/" + familyId + "/children/" + deviceSnap.data().childId);
+        childSnap = await tx.get(childRef);
+      }
+    }
+
+    if (codeId && (!codeSnap || !codeSnap.exists ||
+        codeSnap.data().ownerUid !== parentUid)) {
+      throw new HttpsError("not-found", "Pairing code not found for this family.");
+    }
+
+    if (codeSnap && codeSnap.exists) {
+      tx.update(codeRef, {
+        status: "REVOKED",
+        revoked: true,
+        revokedAtEpochMs: nowMs,
+      });
+      if (lookupRef) tx.delete(lookupRef);
+    }
+
+    if (deviceUid && deviceSnap && deviceSnap.exists) {
+      if (deviceSnap.data().ownerUid !== parentUid) {
+        throw new HttpsError("permission-denied", "Device does not belong to this family.");
+      }
+      tx.delete(deviceRef);
+      if (childSnap && childSnap.exists && childSnap.data().pairedChildUid === deviceUid) {
+        tx.update(childRef, {
+          pairedChildUid: FieldValue.delete(),
+          syncStatus: "PENDING",
+          lastSyncLabel: "Device unpaired by Parent",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  });
+
+  return { revoked: true, familyId: familyId, codeId: codeId || null, deviceUid: deviceUid || null };
+});
+
+/** Child-only: validates a locally persisted pairing session against server membership. */
+exports.verifyPairingSession = onCall(async (request) => {
+  const childUid = requireAuth(request);
+  const familyId = String(request.data && request.data.familyId || "").trim();
+  const childId = String(request.data && request.data.childId || "").trim();
+
+  if (!familyId || !childId) {
+    throw new HttpsError("invalid-argument", "familyId and childId are required.");
   }
 
-  await batch.commit();
-  return { revoked: true };
+  const db = getDb();
+  const [familySnap, childSnap, deviceSnap] = await Promise.all([
+    db.doc("families/" + familyId).get(),
+    db.doc("families/" + familyId + "/children/" + childId).get(),
+    db.doc("families/" + familyId + "/pairedDevices/" + childUid).get(),
+  ]);
+
+  if (!familySnap.exists || !childSnap.exists || !deviceSnap.exists) {
+    return { verified: false };
+  }
+
+  const family = familySnap.data();
+  const child = childSnap.data();
+  const device = deviceSnap.data();
+  const verified = family.ownerUid === device.ownerUid &&
+    device.childUid === childUid &&
+    device.familyId === familyId &&
+    device.childId === childId &&
+    device.status === "PAIRED" &&
+    child.ownerUid === family.ownerUid &&
+    child.pairedChildUid === childUid;
+
+  return {
+    verified: verified,
+    familyId: verified ? familyId : "",
+    ownerUid: verified ? family.ownerUid : "",
+    childId: verified ? childId : "",
+    childName: verified ? (child.name || device.childName || "Child") : "",
+    codeId: verified ? (device.codeId || "") : "",
+  };
 });
 
 /**
- * 4. onSafetyAlertCreated
- * Dispatches a high-priority FCM emergency push notification to parent devices when an SOS alert is created.
+ * SOS push trigger. Parent clients must subscribe to family_sos_<familyId> after
+ * verifying their family membership; never publish a topic token from an untrusted client.
  */
 exports.onSafetyAlertCreated = onDocumentCreated(
   {
-    document: 'families/{familyId}/alerts/{alertId}',
+    document: "families/{familyId}/alerts/{alertId}",
     database: DATABASE_ID,
   },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
     const alert = snap.data();
-    if (!alert || alert.category !== 'SOS') return;
+    if (!alert || alert.category !== "SOS") return;
 
-    const { familyId, childName, title, description } = alert;
+    const familyId = String(event.params.familyId || "");
     const message = {
-      topic: `family_sos_${familyId}`,
+      topic: "family_sos_" + familyId,
       notification: {
-        title: title || `URGENT SOS Alert from ${childName || 'Child'}`,
-        body: description || 'Open Anchor Parent immediately to view live GPS location.',
+        title: alert.title || "Emergency SOS from " + (alert.childName || "Child"),
+        body: alert.description || "Open Anchor Parent to view the emergency alert.",
       },
-      android: {
-        priority: 'high',
-      },
+      android: { priority: "high" },
       data: {
-        familyId: String(familyId || ''),
-        alertId: String(event.params.alertId || ''),
-        category: 'SOS',
-        severity: String(alert.severity || 'CRITICAL'),
+        familyId: familyId,
+        alertId: String(event.params.alertId || ""),
+        category: "SOS",
+        severity: String(alert.severity || "CRITICAL"),
       },
     };
 
     try {
       await admin.messaging().send(message);
-    } catch (err) {
-      console.error('FCM SOS notification dispatch failed:', err);
+    } catch (error) {
+      console.error("SOS FCM dispatch failed:", error);
     }
   }
 );
