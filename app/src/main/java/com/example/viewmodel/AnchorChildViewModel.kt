@@ -426,6 +426,13 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     // ========================================================================
 
     fun navigateTo(screen: ChildScreenId) {
+        if (!_uiState.value.isPaired && screen != ChildScreenId.C01_WELCOME_PAIRING) {
+            _uiState.value = _uiState.value.copy(
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                statusBannerMessage = "Verify a Parent-issued pairing code before opening family features."
+            )
+            return
+        }
         val current = _uiState.value.currentScreen
         if (current == screen) return
         val updatedHistory = (_uiState.value.screenHistory + current).takeLast(12)
@@ -438,8 +445,13 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     fun navigateBack(): Boolean {
         val history = _uiState.value.screenHistory
         if (history.isEmpty()) {
-            if (_uiState.value.currentScreen != ChildScreenId.C03_TODAY_SCREEN_TIME) {
-                _uiState.value = _uiState.value.copy(currentScreen = ChildScreenId.C03_TODAY_SCREEN_TIME)
+            val safeHome = if (_uiState.value.isPaired) {
+                ChildScreenId.C03_TODAY_SCREEN_TIME
+            } else {
+                ChildScreenId.C01_WELCOME_PAIRING
+            }
+            if (_uiState.value.currentScreen != safeHome) {
+                _uiState.value = _uiState.value.copy(currentScreen = safeHome)
                 return true
             }
             return false
