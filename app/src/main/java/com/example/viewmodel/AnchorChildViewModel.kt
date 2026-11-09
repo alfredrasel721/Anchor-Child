@@ -509,7 +509,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         val uid = _uiState.value.currentUser?.uid
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             val targetFam = _uiState.value.targetFamilyKey
             viewModelScope.launch {
                 try {
@@ -543,7 +543,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             )
 
             val uid = _uiState.value.currentUser?.uid
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     repository.updateChildDeviceTelemetry(_uiState.value.targetFamilyKey, updatedChild)
                     _uiState.value = _uiState.value.copy(
@@ -651,7 +651,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val uid = _uiState.value.currentUser?.uid
 
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val created = repository.submitChildRequest(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -761,7 +761,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 child.locationLabel
             }
 
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val alert = repository.triggerChildSosBeacon(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -808,7 +808,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val child = _uiState.value.activeChild
         val uid = _uiState.value.currentUser?.uid
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val alert = repository.sendSafeZoneCheckIn(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -850,7 +850,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val uid = _uiState.value.currentUser?.uid
 
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val msg = repository.sendFamilyMessage(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -895,7 +895,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     fun toggleTaskCompleted(task: FamilyTask) {
         val uid = _uiState.value.currentUser?.uid
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     repository.markTaskCompletedByChild(_uiState.value.targetFamilyKey, task)
                 } catch (_: Exception) {
@@ -978,7 +978,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
                     familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -1004,7 +1004,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         )
         sendChatMessage("Declined ${session.modality.label}: $declineMessage")
 
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
                     familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -1033,7 +1033,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             statusBannerMessage = "Live session terminated immediately • Hardware stream closed."
         )
 
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
                     familyIdOrUid = _uiState.value.targetFamilyKey,
