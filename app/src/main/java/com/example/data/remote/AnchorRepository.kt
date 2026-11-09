@@ -20,6 +20,7 @@ import com.example.model.UserProfile
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -45,13 +46,10 @@ class AnchorRepository(
 ) {
     constructor(context: Context) : this(createDefaultFirestore(context))
 
-    private val secureRandom = SecureRandom()
+    private val functions = FirebaseFunctions.getInstance("us-central1")
 
     fun familyIdFor(uid: String): String =
         if (uid.startsWith("fam_")) uid else "fam_$uid"
-
-    private fun resolveOwnerUid(familyIdOrUid: String, fallbackUid: String): String =
-        if (familyIdOrUid.startsWith("fam_")) familyIdOrUid.removePrefix("fam_") else fallbackUid
 
     private fun familyDoc(familyIdOrUid: String) =
         firestore.collection("families").document(familyIdFor(familyIdOrUid))
@@ -329,204 +327,111 @@ class AnchorRepository(
     }
 
     // ========================================================================
-    // Secure Pairing System (Parent Generation/Revocation + Child Redemption)
+    // Secure Pairing System — all membership and code transitions are server-only
     // ========================================================================
 
-    /**
-     * Generates a cryptographically secure, one-time 6-digit pairing code with 10-minute expiration.
-     * Revokes any prior ACTIVE pairing codes for the same childId.
-     */
     suspend fun createPairingCode(
         parentUid: String,
         childId: String,
         childName: String
     ): PairingCode {
         val familyId = familyIdFor(parentUid)
-        val codeDigits = (100000 + secureRandom.nextInt(900000)).toString()
-        val codeId = "pair_${childId}_$codeDigits"
-        val expiresAt = System.currentTimeMillis() + 600_000L // 10-minute TTL
-
-        val pairing = PairingCode(
-            codeId = codeId,
-            familyId = familyId,
-            ownerUid = parentUid,
-            childId = childId,
-            childName = childName,
-            code = codeDigits,
-            expiresAtEpochMs = expiresAt,
-            status = "ACTIVE",
-            createdAt = Timestamp.now()
+        val response = functions.getHttpsCallable("createPairingCode")
+            .call(mapOf("familyId" to familyId, "childId" to childId, "childName" to childName))
+            .await()
+        val data = response.data as? Map<*, *>
+            ?: throw IllegalStateException("Pairing service returned an invalid response.")
+        return PairingCode(
+            codeId = data["codeId"] as? String ?: "",
+            familyId = data["familyId"] as? String ?: familyId,
+            ownerUid = data["ownerUid"] as? String ?: parentUid,
+            childId = data["childId"] as? String ?: childId,
+            childName = data["childName"] as? String ?: childName,
+            code = data["code"] as? String ?: "",
+            expiresAtEpochMs = (data["expiresAtEpochMs"] as? Number)?.toLong() ?: 0L,
+            status = data["status"] as? String ?: "ACTIVE"
         )
-
-        val famRef = familyDoc(familyId)
-        val existingSnap = famRef.collection("pairingCodes").get().await()
-        val batch = firestore.batch()
-        existingSnap.documents.forEach { doc ->
-            val old = doc.toObject(PairingCode::class.java)
-            if (old != null && old.childId == childId && old.status == "ACTIVE") {
-                batch.update(doc.reference, "status", "EXPIRED")
-            }
-        }
-        batch.set(famRef.collection("pairingCodes").document(codeId), pairing)
-        batch.commit().await()
-        return pairing
     }
 
-    /**
-     * Revokes an active pairing code (Parent-only operation).
-     */
     suspend fun revokePairingCode(parentUid: String, codeId: String) {
-        val familyId = familyIdFor(parentUid)
-        familyDoc(familyId)
-            .collection("pairingCodes")
-            .document(codeId)
-            .update("status", "EXPIRED")
+        functions.getHttpsCallable("revokePairingCode")
+            .call(mapOf("familyId" to familyIdFor(parentUid), "codeId" to codeId))
             .await()
     }
 
-    /**
-     * Redeems a parent-issued 6-digit pairing code for an authenticated Child device.
-     * Enforced by Firestore security rules (`isValidPairingRedemption` + `isValidChildPairingCodeConsumption`):
-     * - Verifies the code exists, is ACTIVE, and has not expired (`expiresAtEpochMs > now`).
-     * - Atomically updates the pairingCode to CONSUMED and creates `/families/{familyId}/pairedDevices/{childUid}`.
-     * - Updates the child device telemetry on `/families/{familyId}/children/{childId}`.
-     */
     suspend fun redeemPairingCode(
-        childUid: String,
-        targetFamilyIdOrUid: String,
         rawCode: String,
-        childIdHint: String = "child_leo",
         deviceName: String,
         deviceModel: String,
         osVersion: String
     ): PairingRedemptionResult {
-        val familyId = familyIdFor(targetFamilyIdOrUid)
-        val ownerUid = resolveOwnerUid(familyId, childUid)
-        val normalizedDigits = rawCode.filter { it.isDigit() }
-        val candidateCodeIds = listOf(
-            "pair_${childIdHint}_$normalizedDigits",
-            "pair_child_leo_$normalizedDigits",
-            "pair_leo_01_$normalizedDigits"
-        ).distinct()
+        val digits = rawCode.filter { it.isDigit() }
+        if (digits.length != 6) {
+            return PairingRedemptionResult(
+                verified = false,
+                errorMessage = "Enter the complete six-digit pairing code from Anchor Parent."
+            )
+        }
 
-        val path = "families/$familyId/pairingCodes"
         return try {
-            val famRef = familyDoc(familyId)
-            var matchedCode: PairingCode? = null
-
-            for (candidateId in candidateCodeIds) {
-                val snap = famRef.collection("pairingCodes").document(candidateId).get().await()
-                if (snap.exists()) {
-                    val obj = snap.toObject(PairingCode::class.java)
-                    if (obj != null) {
-                        matchedCode = obj.copy(codeId = snap.id)
-                        break
-                    }
-                }
-            }
-
-            if (matchedCode == null) {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "Invalid pairing code. Please check the 6-digit code in Anchor Parent."
-                )
-            }
-
-            val cleanStoredCode = matchedCode.code.filter { it.isDigit() }
-            if (cleanStoredCode != normalizedDigits && matchedCode.code != rawCode.trim()) {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "Pairing code mismatch."
-                )
-            }
-
-            if (matchedCode.status != "ACTIVE") {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "This pairing code has already been ${matchedCode.status.lowercase(Locale.US)}."
-                )
-            }
-
-            if (matchedCode.expiresAtEpochMs <= System.currentTimeMillis()) {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "This pairing code has expired (10-minute limit). Generate a fresh code in Anchor Parent."
-                )
-            }
-
-            val codeRef = famRef.collection("pairingCodes").document(matchedCode.codeId)
-            val pairedDeviceRef = famRef.collection("pairedDevices").document(childUid)
-
-            // Step 1: Atomic batch consuming the code and creating pairedDevices membership
-            val batch = firestore.batch()
-            batch.update(
-                codeRef,
-                mapOf(
-                    "status" to "CONSUMED",
-                    "redeemedByUid" to childUid
-                )
-            )
-            val pairedRecord = PairedDeviceRecord(
-                deviceUid = childUid,
-                familyId = familyId,
-                ownerUid = matchedCode.ownerUid.ifBlank { ownerUid },
-                childId = matchedCode.childId,
-                codeId = matchedCode.codeId,
-                redeemedCode = matchedCode.code,
-                deviceName = deviceName,
-                deviceModel = deviceModel,
-                osVersion = osVersion,
-                status = "ACTIVE",
-                pairedAtEpochMs = System.currentTimeMillis()
-            )
-            batch.set(pairedDeviceRef, pairedRecord)
-            batch.commit().await()
-
-            // Step 2: Now that pairedDevices membership is committed, update child telemetry & post audit message
-            val childRef = famRef.collection("children").document(matchedCode.childId)
-            val existingChild = childRef.get().await().toObject(ChildProfile::class.java)
-            if (existingChild != null) {
-                childRef.set(
-                    existingChild.copy(
-                        deviceName = deviceName,
-                        deviceModel = deviceModel,
-                        osVersion = osVersion,
-                        syncStatus = "ENFORCED",
-                        lastSyncLabel = "Paired at ${nowTimeLabel()}",
-                        updatedAt = Timestamp.now()
+            val response = functions.getHttpsCallable("redeemPairingCode")
+                .call(
+                    mapOf(
+                        "code" to digits,
+                        "deviceName" to deviceName,
+                        "deviceModel" to deviceModel,
+                        "osVersion" to osVersion
                     )
                 ).await()
-            }
-
-            sendFamilyMessage(
-                familyIdOrUid = familyId,
-                childId = matchedCode.childId,
-                senderName = matchedCode.childName.ifBlank { "Leo" },
-                senderRole = "SYSTEM",
-                text = "Device Paired: $deviceName ($osVersion) linked via verified one-time code.",
-                isSystemEvent = true
-            )
-
+            val data = response.data as? Map<*, *>
+                ?: throw IllegalStateException("Pairing service returned an invalid response.")
             PairingRedemptionResult(
-                verified = true,
-                familyId = familyId,
-                ownerUid = matchedCode.ownerUid.ifBlank { ownerUid },
-                childId = matchedCode.childId,
-                childName = matchedCode.childName.ifBlank { "Leo" },
-                codeId = matchedCode.codeId
+                verified = data["verified"] as? Boolean == true,
+                familyId = data["familyId"] as? String ?: "",
+                ownerUid = data["ownerUid"] as? String ?: "",
+                childId = data["childId"] as? String ?: "child_leo",
+                childName = data["childName"] as? String ?: "Child",
+                codeId = data["codeId"] as? String ?: "",
+                errorMessage = if (data["verified"] as? Boolean == true) null
+                    else "The pairing service could not verify this code."
             )
         } catch (e: Exception) {
-            FirestoreErrorHandler.handleFirestoreError(e, OperationType.WRITE, path)
             PairingRedemptionResult(
                 verified = false,
-                errorMessage = e.localizedMessage ?: "Pairing verification failed on server."
+                errorMessage = e.localizedMessage ?: "Pairing verification failed. Please try again."
             )
         }
     }
 
-    /**
-     * Backward-compatible wrapper returning Boolean for callers testing simple pairing claim.
-     */
+    suspend fun verifyPairingSession(
+        familyId: String,
+        childId: String
+    ): PairingRedemptionResult {
+        return try {
+            val response = functions.getHttpsCallable("verifyPairingSession")
+                .call(mapOf("familyId" to familyId, "childId" to childId))
+                .await()
+            val data = response.data as? Map<*, *>
+                ?: throw IllegalStateException("Pairing service returned an invalid response.")
+            val verified = data["verified"] as? Boolean == true
+            PairingRedemptionResult(
+                verified = verified,
+                familyId = data["familyId"] as? String ?: "",
+                ownerUid = data["ownerUid"] as? String ?: "",
+                childId = data["childId"] as? String ?: childId,
+                childName = data["childName"] as? String ?: "Child",
+                codeId = data["codeId"] as? String ?: "",
+                errorMessage = if (verified) null else "This device is no longer paired to this family."
+            )
+        } catch (e: Exception) {
+            PairingRedemptionResult(
+                verified = false,
+                errorMessage = e.localizedMessage ?: "Could not verify the saved pairing session."
+            )
+        }
+    }
+
+    @Suppress("UNUSED_PARAMETER")
     suspend fun claimPairingCode(
         uid: String,
         code: String,
@@ -534,18 +439,12 @@ class AnchorRepository(
         deviceName: String,
         deviceModel: String,
         osVersion: String
-    ): Boolean {
-        val res = redeemPairingCode(
-            childUid = uid,
-            targetFamilyIdOrUid = uid,
-            rawCode = code,
-            childIdHint = childId,
-            deviceName = deviceName,
-            deviceModel = deviceModel,
-            osVersion = osVersion
-        )
-        return res.verified
-    }
+    ): Boolean = redeemPairingCode(
+        rawCode = code,
+        deviceName = deviceName,
+        deviceModel = deviceModel,
+        osVersion = osVersion
+    ).verified
 
     // ========================================================================
     // Child App Telemetry & Permitted Mutations
