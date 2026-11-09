@@ -135,11 +135,13 @@ fun AnchorChildAppRoot(
             }
         },
         bottomBar = {
-            AnchorChildBottomBar(
-                currentTab = uiState.currentScreen.bottomTab,
-                pendingDecisionsCount = uiState.requests.count { it.status == "PENDING" },
-                onSelectTab = { viewModel.selectBottomTab(it) }
-            )
+            if (uiState.isPaired) {
+                AnchorChildBottomBar(
+                    currentTab = uiState.currentScreen.bottomTab,
+                    pendingDecisionsCount = uiState.requests.count { it.status == "PENDING" },
+                    onSelectTab = { viewModel.selectBottomTab(it) }
+                )
+            }
         }
     ) { innerPadding ->
         Box(
