@@ -62,71 +62,15 @@ class AnchorRepository(
         return fmt.format(Date())
     }
 
-    suspend fun ensureSeeded(uid: String, displayName: String, email: String) {
-        val familyId = familyIdFor(uid)
-        val userPath = "users/$uid"
-        try {
-            val userRef = firestore.collection("users").document(uid)
-            val existingUser = userRef.get().await()
-            if (!existingUser.exists()) {
-                val profile = UserProfile(
-                    uid = uid,
-                    displayName = displayName.ifBlank { "Leo Jenkins (Child Device)" },
-                    email = email.ifBlank { "leo.device@anchor.family" },
-                    role = "CHILD_DEVICE",
-                    familyId = familyId,
-                    notificationCadence = "Immediate",
-                    createdAt = Timestamp.now(),
-                    updatedAt = Timestamp.now()
-                )
-                userRef.set(profile).await()
-            }
-
-            val famRef = familyDoc(familyId)
-            val existingFam = famRef.get().await()
-            if (!existingFam.exists()) {
-                val batch = firestore.batch()
-                batch.set(famRef, AnchorSeedData.defaultHousehold(uid, familyId))
-
-                AnchorSeedData.defaultChildren(uid, familyId).forEach { child ->
-                    batch.set(famRef.collection("children").document(child.childId), child)
-                }
-                AnchorSeedData.defaultPairingCodes(uid, familyId).forEach { code ->
-                    batch.set(famRef.collection("pairingCodes").document(code.codeId), code)
-                }
-                AnchorSeedData.defaultAppRules(uid, familyId).forEach { rule ->
-                    batch.set(famRef.collection("appRules").document(rule.ruleId), rule)
-                }
-                AnchorSeedData.defaultSchedules(uid, familyId).forEach { schedule ->
-                    batch.set(famRef.collection("schedules").document(schedule.scheduleId), schedule)
-                }
-                AnchorSeedData.defaultGeofences(uid, familyId).forEach { geo ->
-                    batch.set(famRef.collection("geofences").document(geo.geofenceId), geo)
-                }
-                AnchorSeedData.defaultAlerts(uid, familyId).forEach { alert ->
-                    batch.set(famRef.collection("alerts").document(alert.alertId), alert)
-                }
-                AnchorSeedData.defaultRequests(uid, familyId).forEach { req ->
-                    batch.set(famRef.collection("requests").document(req.requestId), req)
-                }
-                AnchorSeedData.defaultMessages(uid, familyId).forEach { msg ->
-                    batch.set(famRef.collection("messages").document(msg.messageId), msg)
-                }
-                AnchorSeedData.defaultTasks(uid, familyId).forEach { task ->
-                    batch.set(famRef.collection("tasks").document(task.taskId), task)
-                }
-                AnchorSeedData.defaultGuardians(uid, familyId).forEach { guardian ->
-                    batch.set(famRef.collection("guardians").document(guardian.guardianId), guardian)
-                }
-                val prem = AnchorSeedData.defaultPremiumConfig(uid, familyId)
-                batch.set(famRef.collection("premiumConfigs").document(prem.configId), prem)
-
-                batch.commit().await()
-            }
-        } catch (e: Exception) {
-            FirestoreErrorHandler.handleFirestoreError(e, OperationType.WRITE, userPath)
-            throw e
-        }
+    @Deprecated("Child devices must use server-verified Parent pairing; they cannot bootstrap households.")
+    suspend fun ensureSeeded(
+        uid: String,
+        displayName: String,
+        email: String
+    ) {
+        throw SecurityException(
+            "Child devices cannot create family households. Sign in and enter a one-time code from Anchor Parent."
+        )
     }
 
     fun observeHousehold(familyIdOrUid: String): Flow<FamilyHousehold?> = callbackFlow {
