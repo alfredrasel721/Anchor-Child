@@ -436,6 +436,27 @@ class AnchorRepository(
         }
     }
 
+    fun observePairedDeviceMembership(
+        familyId: String,
+        childUid: String
+    ): Flow<Boolean> = callbackFlow {
+        val path = "families/$familyId/pairedDevices/$childUid"
+        val registration = firestore.document(path).addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                close(error)
+                return@addSnapshotListener
+            }
+            if (snapshot != null && !snapshot.metadata.isFromCache) {
+                val active = snapshot.exists() &&
+                    snapshot.getString("status") == "PAIRED" &&
+                    snapshot.getString("childUid") == childUid &&
+                    snapshot.getString("familyId") == familyId
+                trySend(active)
+            }
+        }
+        awaitClose { registration.remove() }
+    }
+
     @Suppress("UNUSED_PARAMETER")
     suspend fun claimPairingCode(
         uid: String,
