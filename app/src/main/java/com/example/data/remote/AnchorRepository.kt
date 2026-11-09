@@ -747,8 +747,8 @@ class AnchorRepository(
                     ?: com.google.firebase.FirebaseApp.initializeApp(
                         context,
                         com.google.firebase.FirebaseOptions.Builder()
-                            .setProjectId("gen-lang-client-0963224775")
-                            .setApplicationId("com.anchor.child")
+                            .setProjectId("demo-anchor-local")
+                            .setApplicationId("1:000000000000:android:0000000000000000")
                             .setApiKey("AIzaSyDummyKeyForLocalRobolectricTest")
                             .build()
                     )
