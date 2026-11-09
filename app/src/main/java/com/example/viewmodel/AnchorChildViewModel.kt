@@ -132,7 +132,9 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                         isPaired = false,
                         pairedFamilyId = "",
                         selectedChildId = "child_leo",
-                        currentScreen = ChildScreenId.C01_WELCOME_PAIRING
+                        currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                        screenHistory = emptyList()
                     )
                 }
             }
@@ -166,6 +168,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 pairedFamilyId = "",
                 selectedChildId = "child_leo",
                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
                 statusBannerMessage = verification.errorMessage
                     ?: "This device is no longer paired. Enter a new code from Anchor Parent."
             )
@@ -175,6 +178,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 isPaired = false,
                 pairedFamilyId = "",
                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
                 statusBannerMessage = "Could not reach Anchor Cloud to verify this saved pairing. Your saved pairing is retained; reconnect and retry."
             )
         }
@@ -204,7 +208,9 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                         _uiState.value = _uiState.value.copy(
                             isPaired = false,
                             pairedFamilyId = "",
-                            currentScreen = ChildScreenId.C01_WELCOME_PAIRING
+                            currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                        screenHistory = emptyList()
                         )
                     }
                 } else {
@@ -212,7 +218,9 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                     _uiState.value = _uiState.value.copy(
                         isPaired = false,
                         pairedFamilyId = "",
-                        currentScreen = ChildScreenId.C01_WELCOME_PAIRING
+                        currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                        screenHistory = emptyList()
                     )
                 }
             }
@@ -228,6 +236,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                     isPaired = false,
                     pairedFamilyId = "",
                     currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
                     statusBannerMessage = "Pair this device with Anchor Parent before syncing family data."
                 )
                 return@launch
@@ -248,6 +257,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                                 pairedFamilyId = "",
                                 selectedChildId = "child_leo",
                                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
                                 statusBannerMessage = "Anchor Parent unpaired this device. Enter a new one-time code to reconnect."
                             )
                             firestoreListenersJob?.cancel()
@@ -429,6 +439,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         if (!_uiState.value.isPaired && screen != ChildScreenId.C01_WELCOME_PAIRING) {
             _uiState.value = _uiState.value.copy(
                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
                 statusBannerMessage = "Verify a Parent-issued pairing code before opening family features."
             )
             return
@@ -443,6 +454,14 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun navigateBack(): Boolean {
+        if (!_uiState.value.isPaired) {
+            val changed = _uiState.value.currentScreen != ChildScreenId.C01_WELCOME_PAIRING
+            _uiState.value = _uiState.value.copy(
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                screenHistory = emptyList()
+            )
+            return changed
+        }
         val history = _uiState.value.screenHistory
         if (history.isEmpty()) {
             val safeHome = if (_uiState.value.isPaired) {
