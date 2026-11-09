@@ -1,7 +1,10 @@
 {
   "firestore": {
-    "database": "ai-studio-android-anchorch-710012f1-419e-46fb-87fd-4e0fce481e8e",
+    "database": "ai-studio-android-anchorpa-a481c5e6-6428-45e8-9bf4-3e58b56cbd1e",
     "rules": "firestore.rules"
+  },
+  "functions": {
+    "source": "functions"
   },
   "emulators": {
     "firestore": {
