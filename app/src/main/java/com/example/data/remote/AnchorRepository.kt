@@ -19,8 +19,8 @@ import com.example.model.ScheduleRoutine
 import com.example.model.UserProfile
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -42,11 +42,10 @@ data class PairingRedemptionResult(
 )
 
 class AnchorRepository(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
-    constructor(context: Context) : this(createDefaultFirestore(context))
-
-    private val functions = FirebaseFunctions.getInstance("asia-south1")
+    constructor(context: Context) : this(createDefaultFirestore(context), FirebaseAuth.getInstance())
 
     fun familyIdFor(uid: String): String =
         if (uid.startsWith("fam_")) uid else "fam_$uid"
@@ -283,27 +282,29 @@ class AnchorRepository(
         childName: String
     ): PairingCode {
         val familyId = familyIdFor(parentUid)
-        val response = functions.getHttpsCallable("createPairingCode")
-            .call(mapOf("familyId" to familyId, "childId" to childId, "childName" to childName))
-            .await()
-        val data = response.data as? Map<*, *>
-            ?: throw IllegalStateException("Pairing service returned an invalid response.")
+        val data = AnchorWorkerApi.post(
+            auth,
+            "pairing/create",
+            mapOf("familyId" to familyId, "childId" to childId, "childName" to childName)
+        )
         return PairingCode(
-            codeId = data["codeId"] as? String ?: "",
-            familyId = data["familyId"] as? String ?: familyId,
-            ownerUid = data["ownerUid"] as? String ?: parentUid,
-            childId = data["childId"] as? String ?: childId,
-            childName = data["childName"] as? String ?: childName,
-            code = data["code"] as? String ?: "",
-            expiresAtEpochMs = (data["expiresAtEpochMs"] as? Number)?.toLong() ?: 0L,
-            status = data["status"] as? String ?: "ACTIVE"
+            codeId = data.optString("codeId"),
+            familyId = data.optString("familyId", familyId),
+            ownerUid = data.optString("ownerUid", parentUid),
+            childId = data.optString("childId", childId),
+            childName = data.optString("childName", childName),
+            code = data.optString("code"),
+            expiresAtEpochMs = data.optLong("expiresAtEpochMs"),
+            status = data.optString("status", "ACTIVE")
         )
     }
 
     suspend fun revokePairingCode(parentUid: String, codeId: String) {
-        functions.getHttpsCallable("revokePairingCode")
-            .call(mapOf("familyId" to familyIdFor(parentUid), "codeId" to codeId))
-            .await()
+        AnchorWorkerApi.post(
+            auth,
+            "pairing/revoke",
+            mapOf("familyId" to familyIdFor(parentUid), "codeId" to codeId)
+        )
     }
 
     suspend fun redeemPairingCode(
@@ -321,25 +322,24 @@ class AnchorRepository(
         }
 
         return try {
-            val response = functions.getHttpsCallable("redeemPairingCode")
-                .call(
-                    mapOf(
-                        "code" to digits,
-                        "deviceName" to deviceName,
-                        "deviceModel" to deviceModel,
-                        "osVersion" to osVersion
-                    )
-                ).await()
-            val data = response.data as? Map<*, *>
-                ?: throw IllegalStateException("Pairing service returned an invalid response.")
+            val data = AnchorWorkerApi.post(
+                auth,
+                "pairing/redeem",
+                mapOf(
+                    "code" to digits,
+                    "deviceName" to deviceName,
+                    "deviceModel" to deviceModel,
+                    "osVersion" to osVersion
+                )
+            )
             PairingRedemptionResult(
-                verified = data["verified"] as? Boolean == true,
-                familyId = data["familyId"] as? String ?: "",
-                ownerUid = data["ownerUid"] as? String ?: "",
-                childId = data["childId"] as? String ?: "child_leo",
-                childName = data["childName"] as? String ?: "Child",
-                codeId = data["codeId"] as? String ?: "",
-                errorMessage = if (data["verified"] as? Boolean == true) null
+                verified = data.optBoolean("verified"),
+                familyId = data.optString("familyId"),
+                ownerUid = data.optString("ownerUid"),
+                childId = data.optString("childId", "child_leo"),
+                childName = data.optString("childName", "Child"),
+                codeId = data.optString("codeId"),
+                errorMessage = if (data.optBoolean("verified")) null
                     else "The pairing service could not verify this code.",
                 serverResponded = true
             )
@@ -356,19 +356,19 @@ class AnchorRepository(
         childId: String
     ): PairingRedemptionResult {
         return try {
-            val response = functions.getHttpsCallable("verifyPairingSession")
-                .call(mapOf("familyId" to familyId, "childId" to childId))
-                .await()
-            val data = response.data as? Map<*, *>
-                ?: throw IllegalStateException("Pairing service returned an invalid response.")
-            val verified = data["verified"] as? Boolean == true
+            val data = AnchorWorkerApi.post(
+                auth,
+                "pairing/verify",
+                mapOf("familyId" to familyId, "childId" to childId)
+            )
+            val verified = data.optBoolean("verified")
             PairingRedemptionResult(
                 verified = verified,
-                familyId = data["familyId"] as? String ?: "",
-                ownerUid = data["ownerUid"] as? String ?: "",
-                childId = data["childId"] as? String ?: childId,
-                childName = data["childName"] as? String ?: "Child",
-                codeId = data["codeId"] as? String ?: "",
+                familyId = data.optString("familyId"),
+                ownerUid = data.optString("ownerUid"),
+                childId = data.optString("childId", childId),
+                childName = data.optString("childName", "Child"),
+                codeId = data.optString("codeId"),
                 errorMessage = if (verified) null else "This device is no longer paired to this family.",
                 serverResponded = true
             )
@@ -532,7 +532,20 @@ class AnchorRepository(
             createdAt = Timestamp.now()
         )
         try {
-            familyDoc(familyId).collection("alerts").document(alertId).set(alert).await()
+            val response = AnchorWorkerApi.post(
+                auth,
+                "sos",
+                mapOf(
+                    "familyId" to familyId,
+                    "childId" to childId,
+                    "childName" to childName,
+                    "locationLabel" to locationLabel,
+                    "batteryLevel" to batteryLevel,
+                    "isPracticeDrill" to isPracticeDrill,
+                    "alertId" to alertId
+                )
+            )
+            val persistedAlert = alert.copy(alertId = response.optString("alertId", alertId))
             sendFamilyMessage(
                 familyIdOrUid = familyId,
                 childId = childId,
@@ -545,7 +558,7 @@ class AnchorRepository(
                 },
                 isSystemEvent = true
             )
-            return alert
+            return persistedAlert
         } catch (e: Exception) {
             FirestoreErrorHandler.handleFirestoreError(e, OperationType.CREATE, path)
             throw e
