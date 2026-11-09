@@ -119,7 +119,11 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             pairingSessionStore.sessionFlow.collectLatest { session ->
                 val user = _uiState.value.currentUser
-                if (user != null && session.isPaired && session.familyId.isNotBlank()) {
+                if (user != null && session.isPaired && session.familyId.isNotBlank() &&
+                    (!_uiState.value.isPaired ||
+                        _uiState.value.pairedFamilyId != session.familyId ||
+                        _uiState.value.selectedChildId != session.childId)
+                ) {
                     restoreVerifiedPairingSession(user, session.familyId, session.childId)
                 } else if (!session.isPaired || session.familyId.isBlank()) {
                     firestoreListenersJob?.cancel()
