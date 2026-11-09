@@ -25,7 +25,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
-import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,6 +49,9 @@ class AnchorRepository(
 
     fun familyIdFor(uid: String): String =
         if (uid.startsWith("fam_")) uid else "fam_$uid"
+
+    private fun resolveOwnerUid(familyIdOrUid: String, fallbackUid: String): String =
+        if (familyIdOrUid.startsWith("fam_")) familyIdOrUid.removePrefix("fam_") else fallbackUid
 
     private fun familyDoc(familyIdOrUid: String) =
         firestore.collection("families").document(familyIdFor(familyIdOrUid))
