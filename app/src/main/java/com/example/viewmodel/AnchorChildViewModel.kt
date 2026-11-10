@@ -1004,29 +1004,17 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
 
         _uiState.value = _uiState.value.copy(
             liveSessionState = session.copy(
-                status = LiveSessionStatus.ACTIVE_STREAMING,
+                status = LiveSessionStatus.CONSENT_GRANTED_PENDING_CONNECTION,
                 remainingSeconds = 600,
-                startedAtLabel = SimpleDateFormat("h:mm:ss a", Locale.US).format(Date())
+                startedAtLabel = "Not connected"
             ),
-            statusBannerMessage = "Live ${session.modality.label} approved • You can stop it at any second."
+            statusBannerMessage = "Consent recorded. No media is being captured or transmitted: secure streaming has not been established."
         )
         navigateTo(ChildScreenId.C14_ACTIVE_LIVE_SESSION)
 
+        // Do not run a streaming timer or report a live hardware stream until a
+        // real, authenticated, OS-consented media track is established.
         liveTimerJob?.cancel()
-        liveTimerJob = viewModelScope.launch {
-            while (_uiState.value.liveSessionState.remainingSeconds > 0 &&
-                _uiState.value.liveSessionState.status == LiveSessionStatus.ACTIVE_STREAMING
-            ) {
-                delay(1000L)
-                val rem = _uiState.value.liveSessionState.remainingSeconds - 1
-                _uiState.value = _uiState.value.copy(
-                    liveSessionState = _uiState.value.liveSessionState.copy(remainingSeconds = rem)
-                )
-            }
-            if (_uiState.value.liveSessionState.remainingSeconds <= 0) {
-                stopActiveLiveSessionImmediately(reason = "10-minute safety cap reached")
-            }
-        }
 
         if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
