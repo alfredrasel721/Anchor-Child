@@ -3,6 +3,8 @@ package com.example.service
 import android.accessibilityservice.AccessibilityService
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.os.Build
+import android.telecom.TelecomManager
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -41,6 +43,7 @@ class AnchorAccessibilityService : AccessibilityService() {
     }
     private val systemMonitor by lazy { DeviceSystemMonitor(applicationContext) }
     private var lastEvaluatedAtMs: Long = 0L
+    private var lastEvaluatedPackage: String = ""
     private var lastRestrictedAtMs: Long = 0L
 
     override fun onServiceConnected() {
@@ -56,8 +59,11 @@ class AnchorAccessibilityService : AccessibilityService() {
 
         if (isEssentialPackage(targetPackage)) return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastEvaluatedAtMs < 700L || now - lastRestrictedAtMs < 2000L) return
+        if ((targetPackage == lastEvaluatedPackage && now - lastEvaluatedAtMs < 700L) ||
+            now - lastRestrictedAtMs < 2000L
+        ) return
         lastEvaluatedAtMs = now
+        lastEvaluatedPackage = targetPackage
 
         evaluationScope.launch {
             try {
@@ -138,6 +144,17 @@ class AnchorAccessibilityService : AccessibilityService() {
     private fun isEssentialPackage(pkg: String): Boolean {
         if (pkg == packageName || pkg == "android") return true
         if (pkg.startsWith("com.android.emergency")) return true
+        // OEM-specific/default dialers must always remain usable for emergencies,
+        // even when they are not in the ordinary Android dialer package allowlist.
+        try {
+            val telecom = getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+            if (pkg == telecom?.defaultDialerPackage) return true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                pkg == telecom?.systemDialerPackage
+            ) return true
+        } catch (_: Exception) {
+            // Also retain the static emergency and well-known dialer allowlist.
+        }
         return pkg in setOf(
             "com.android.systemui",
             "com.android.settings",
