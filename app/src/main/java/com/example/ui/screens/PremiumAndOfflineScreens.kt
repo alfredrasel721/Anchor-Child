@@ -299,7 +299,7 @@ fun C12PremiumFiltersDisclosureScreen(
                                 label = { Text(mod.badgeText, style = MaterialTheme.typography.labelSmall) },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .testTag("c12_test_live_${mod.name.lowercase}")
+                                    .testTag("c12_test_live_${mod.name.lowercase()}")
                             )
                         }
                     }
@@ -598,7 +598,7 @@ fun C14ActiveLiveSessionScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (streaming) "• LIVE ${session.modality.label.uppercase} ACTIVE" else "• CONSENT RECORDED • NOT STREAMING",
+                                text = if (streaming) "• LIVE ${session.modality.label.uppercase()} ACTIVE" else "• CONSENT RECORDED • NOT STREAMING",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StatusFailedCrimson,
                                 fontWeight = FontWeight.ExtraBold

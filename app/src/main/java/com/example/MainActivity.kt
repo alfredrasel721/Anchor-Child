@@ -141,6 +141,7 @@ fun AnchorChildAppRoot(
                     currentScreen = uiState.currentScreen,
                     activeChild = uiState.activeChild,
                     isOnline = uiState.isEffectiveOnline,
+                    isPaired = uiState.isPaired,
                     isAuthenticated = uiState.currentUser != null,
                     liveStatus = uiState.liveSessionState.status,
                     canNavigateBack = uiState.currentScreen != ChildScreenId.C03_TODAY_SCREEN_TIME,

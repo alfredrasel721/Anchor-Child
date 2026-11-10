@@ -83,6 +83,7 @@ fun AnchorChildTopBar(
     currentScreen: ChildScreenId,
     activeChild: ChildProfile,
     isOnline: Boolean,
+    isPaired: Boolean,
     isAuthenticated: Boolean,
     liveStatus: LiveSessionStatus,
     canNavigateBack: Boolean,
@@ -191,7 +192,7 @@ fun AnchorChildTopBar(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${activeChild.name} • ${activeChild.deviceName} • ${activeChild.batteryLevel}%",
+                        text = if (activeChild.name == "This device") "Complete secure pairing to get started" else "${activeChild.name} • ${activeChild.deviceName} • ${activeChild.batteryLevel}%",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -205,8 +206,16 @@ fun AnchorChildTopBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Live Sync / Offline Status Pill
-                val syncBg = if (isOnline) StatusEnforcedBg else StatusPendingBg
-                val syncFg = if (isOnline) StatusEnforcedGreen else StatusPendingAmber
+                val syncBg = when {
+                    !isPaired -> StitchSurfaceContainerLow
+                    isOnline -> StatusEnforcedBg
+                    else -> StatusPendingBg
+                }
+                val syncFg = when {
+                    !isPaired -> MaterialTheme.colorScheme.onSurfaceVariant
+                    isOnline -> StatusEnforcedGreen
+                    else -> StatusPendingAmber
+                }
                 Surface(
                     color = syncBg,
                     shape = RoundedCornerShape(50),
@@ -226,7 +235,7 @@ fun AnchorChildTopBar(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isOnline) "ENFORCED" else "OFFLINE",
+                            text = when { !isPaired -> "NOT PAIRED"; isOnline -> "ONLINE"; else -> "OFFLINE" },
                             style = MaterialTheme.typography.labelSmall,
                             color = syncFg,
                             fontWeight = FontWeight.Bold
@@ -367,7 +376,7 @@ fun AnchorChildBottomBar(
             NavigationBarItem(
                 selected = selected,
                 onClick = { onSelectTab(tab) },
-                modifier = Modifier.testTag("bottom_tab_${tab.name.lowercase}"),
+                modifier = Modifier.testTag("bottom_tab_${tab.name.lowercase()}"),
                 icon = {
                     Icon(
                         imageVector = icon,

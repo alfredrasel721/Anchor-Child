@@ -117,7 +117,7 @@ fun C03TodayScreenTimeScreen(
                             shape = RoundedCornerShape(50)
                         ) {
                             Text(
-                                text = "ACTIVE MODE: ${child.currentMode.uppercase}",
+                                text = "ACTIVE MODE: ${child.currentMode.uppercase()}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StitchSecondary,
                                 fontWeight = FontWeight.ExtraBold,
