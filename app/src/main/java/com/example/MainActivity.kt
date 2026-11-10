@@ -66,10 +66,16 @@ import com.example.ui.theme.StitchPrimary
 import com.example.ui.theme.StitchSurface
 import com.example.ui.theme.StitchSurfaceContainerLow
 import com.example.viewmodel.AnchorChildViewModel
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initializeFirebaseSafely()
         enableEdgeToEdge()
         try {
             startService(Intent(this, AnchorMonitorForegroundService::class.java))
@@ -79,6 +85,30 @@ class MainActivity : ComponentActivity() {
             AnchorChildTheme {
                 AnchorChildAppRoot()
             }
+        }
+    }
+
+    private fun initializeFirebaseSafely() {
+        try {
+            val firebaseApp = FirebaseApp.initializeApp(this)
+                ?: FirebaseApp.initializeApp(
+                    this,
+                    FirebaseOptions.Builder()
+                        .setProjectId("demo-anchor-local")
+                        .setApplicationId("1:000000000000:android:0000000000000000")
+                        .setApiKey("AIzaSyDummyKeyForLocalRobolectricTest")
+                        .build()
+                )
+
+            // Keep debug attestation for local/CI builds; use Play Integrity in release builds.
+            val appCheck = FirebaseAppCheck.getInstance(firebaseApp)
+            if (BuildConfig.DEBUG) {
+                appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+            } else {
+                appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            }
+        } catch (_: Exception) {
+            // Cloud sign-in and pairing require the real Firebase google-services.json.
         }
     }
 }
@@ -111,6 +141,7 @@ fun AnchorChildAppRoot(
                     currentScreen = uiState.currentScreen,
                     activeChild = uiState.activeChild,
                     isOnline = uiState.isEffectiveOnline,
+                    isPaired = uiState.isPaired,
                     isAuthenticated = uiState.currentUser != null,
                     liveStatus = uiState.liveSessionState.status,
                     canNavigateBack = uiState.currentScreen != ChildScreenId.C03_TODAY_SCREEN_TIME,
@@ -124,10 +155,12 @@ fun AnchorChildAppRoot(
                         viewModel.navigateTo(ChildScreenId.C14_ACTIVE_LIVE_SESSION)
                     }
                 )
-                AnchorChildQuickScreenStrip(
-                    currentScreen = uiState.currentScreen,
-                    onSelectScreen = { viewModel.navigateTo(it) }
-                )
+                if (BuildConfig.DEBUG) {
+                    AnchorChildQuickScreenStrip(
+                        currentScreen = uiState.currentScreen,
+                        onSelectScreen = { viewModel.navigateTo(it) }
+                    )
+                }
                 StatusFeedbackBanner(
                     message = uiState.statusBannerMessage,
                     onDismiss = { viewModel.clearStatusBanner() }
@@ -135,11 +168,13 @@ fun AnchorChildAppRoot(
             }
         },
         bottomBar = {
-            AnchorChildBottomBar(
-                currentTab = uiState.currentScreen.bottomTab,
-                pendingDecisionsCount = uiState.requests.count { it.status == "PENDING" },
-                onSelectTab = { viewModel.selectBottomTab(it) }
-            )
+            if (uiState.isPaired) {
+                AnchorChildBottomBar(
+                    currentTab = uiState.currentScreen.bottomTab,
+                    pendingDecisionsCount = uiState.requests.count { it.status == "PENDING" },
+                    onSelectTab = { viewModel.selectBottomTab(it) }
+                )
+            }
         }
     ) { innerPadding ->
         Box(
@@ -151,7 +186,6 @@ fun AnchorChildAppRoot(
                 ChildScreenId.C01_WELCOME_PAIRING -> C01WelcomePairingScreen(
                     uiState = uiState,
                     onUpdatePairingCode = viewModel::updatePairingCodeInput,
-                    onSelectChild = viewModel::selectChildProfile,
                     onSubmitPairing = viewModel::submitPairingCode,
                     onSignInWithGoogle = { viewModel.signInWithGoogle(context) },
                     onNavigateToPermissions = {
@@ -277,7 +311,7 @@ fun AnchorChildAppRoot(
         }
     }
 
-    if (showScreenAtlas) {
+    if (BuildConfig.DEBUG && showScreenAtlas) {
         StitchScreenAtlasModal(
             currentScreen = uiState.currentScreen,
             onSelectScreen = viewModel::navigateTo,
@@ -328,7 +362,7 @@ fun AnchorChildAppRoot(
                         Text(
                             text = "Household: ${uiState.household.familyName} (${uiState.household.familyId})\n" +
                                 "Active Child: ${uiState.activeChild.name} (${uiState.activeChild.childId})\n" +
-                                "Account: ${uiState.currentUser?.email ?: "Not signed in (Using offline/seeded household)"}",
+                                "Account: ${uiState.currentUser?.email ?:"Not signed in (Using offline/seeded household)"}",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -373,7 +407,7 @@ fun AnchorChildAppRoot(
                         .testTag("modal_open_pairing_button"),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Open Pairing Code Setup (C-01)")
+                    Text("Open Pairing Code Setup")
                 }
                 Spacer(modifier = Modifier.height(20.dp))
             }

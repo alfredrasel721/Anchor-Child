@@ -117,7 +117,7 @@ fun C06RequestExtraTimeScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "C-06 • Request Extra Time or App",
+                                text = "• Request Extra Time or App",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -355,7 +355,7 @@ fun C07ParentDecisionInboxScreen(
                     ) {
                         Column {
                             Text(
-                                text = "C-07 • Parent Decision Inbox",
+                                text = "• Parent Decision Inbox",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -511,7 +511,7 @@ private fun DecisionInboxCard(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Discuss in Family Chat (C-09)")
+                Text("Discuss in Family Chat")
             }
         }
     }

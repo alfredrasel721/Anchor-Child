@@ -21,10 +21,11 @@ class AnchorNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        val pkg = sbn?.packageName ?: return
-        if (pkg != packageName) {
-            _heldNotificationCount.value = _heldNotificationCount.value + 1
-        }
+        // Observing a notification does NOT mean it has been suppressed.
+        // Never claim a notification was "held" without an authorized,
+        // entitlement-checked filtering action. Notification contents are
+        // not inspected or forwarded to the Parent device.
+        if (sbn?.packageName == null) return
     }
 
     override fun onListenerDisconnected() {
@@ -38,7 +39,7 @@ class AnchorNotificationListenerService : NotificationListenerService() {
         private val _listenerConnected = MutableStateFlow(false)
         val listenerConnected: StateFlow<Boolean> = _listenerConnected.asStateFlow()
 
-        private val _heldNotificationCount = MutableStateFlow(14)
+        private val _heldNotificationCount = MutableStateFlow(0)
         val heldNotificationCount: StateFlow<Int> = _heldNotificationCount.asStateFlow()
     }
 }

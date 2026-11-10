@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import com.example.model.ChildBottomTab
 import com.example.model.ChildProfile
 import com.example.model.ChildScreenId
+import com.example.BuildConfig
 import com.example.model.LiveSessionStatus
 import com.example.ui.theme.StatusEnforcedBg
 import com.example.ui.theme.StatusEnforcedGreen
@@ -82,6 +83,7 @@ fun AnchorChildTopBar(
     currentScreen: ChildScreenId,
     activeChild: ChildProfile,
     isOnline: Boolean,
+    isPaired: Boolean,
     isAuthenticated: Boolean,
     liveStatus: LiveSessionStatus,
     canNavigateBack: Boolean,
@@ -182,29 +184,15 @@ fun AnchorChildTopBar(
                 }
 
                 Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            color = StitchPrimaryFixed,
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                text = currentScreen.code,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = StitchPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = currentScreen.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                     Text(
-                        text = "${activeChild.name} • ${activeChild.deviceName} • ${activeChild.batteryLevel}%",
+                        text = currentScreen.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (activeChild.name == "This device") "Complete secure pairing to get started" else "${activeChild.name} • ${activeChild.deviceName} • ${activeChild.batteryLevel}%",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -218,8 +206,16 @@ fun AnchorChildTopBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Live Sync / Offline Status Pill
-                val syncBg = if (isOnline) StatusEnforcedBg else StatusPendingBg
-                val syncFg = if (isOnline) StatusEnforcedGreen else StatusPendingAmber
+                val syncBg = when {
+                    !isPaired -> StitchSurfaceContainerLow
+                    isOnline -> StatusEnforcedBg
+                    else -> StatusPendingBg
+                }
+                val syncFg = when {
+                    !isPaired -> MaterialTheme.colorScheme.onSurfaceVariant
+                    isOnline -> StatusEnforcedGreen
+                    else -> StatusPendingAmber
+                }
                 Surface(
                     color = syncBg,
                     shape = RoundedCornerShape(50),
@@ -239,7 +235,7 @@ fun AnchorChildTopBar(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isOnline) "ENFORCED" else "OFFLINE",
+                            text = when { !isPaired -> "NOT PAIRED"; isOnline -> "ONLINE"; else -> "OFFLINE" },
                             style = MaterialTheme.typography.labelSmall,
                             color = syncFg,
                             fontWeight = FontWeight.Bold
@@ -248,21 +244,23 @@ fun AnchorChildTopBar(
                 }
 
                 // All 15 Stitch Screens Switcher Button
-                IconButton(
-                    onClick = onOpenScreenAtlas,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(StitchSurfaceContainerLow)
-                        .testTag("open_screen_atlas_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.GridView,
-                        contentDescription = "All 15 Stitch Screens",
-                        tint = StitchPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                if (BuildConfig.DEBUG) {
+                    IconButton(
+                        onClick = onOpenScreenAtlas,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(StitchSurfaceContainerLow)
+                            .testTag("open_screen_atlas_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GridView,
+                            contentDescription = "All 15 Stitch Screens",
+                            tint = StitchPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    }
 
                 // Google Cloud Account Button
                 IconButton(
@@ -299,7 +297,7 @@ fun AnchorChildTopBar(
                     onClick = { /* Handled by caller via chip click wrapper if needed */ },
                     label = {
                         Text(
-                            text = "${screen.code} ${screen.title}",
+                            text = screen.title,
                             style = MaterialTheme.typography.labelSmall
                         )
                     },
@@ -345,13 +343,6 @@ fun AnchorChildQuickScreenStrip(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = screen.code,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) Color(0xFF94F1D6) else StitchPrimary,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = screen.title,
                         style = MaterialTheme.typography.labelMedium,
@@ -532,17 +523,6 @@ fun StitchScreenAtlasModal(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Surface(
-                                color = StitchPrimary,
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = screen.code,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                                )
-                            }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(

@@ -12,7 +12,6 @@ import com.example.data.local.CachedScheduleEntity
 import com.example.data.local.OfflineSyncQueueEntity
 import com.example.data.local.PairingSessionStore
 import com.example.data.remote.AnchorRepository
-import com.example.model.AnchorSeedData
 import com.example.model.AppRule
 import com.example.model.ChildBottomTab
 import com.example.model.ChildProfile
@@ -40,6 +39,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,24 +50,24 @@ data class AnchorChildUiState(
     val currentUser: FirebaseUser? = null,
     val isAuthLoading: Boolean = false,
     val authErrorMessage: String? = null,
-    val currentScreen: ChildScreenId = ChildScreenId.C03_TODAY_SCREEN_TIME,
+    val currentScreen: ChildScreenId = ChildScreenId.C01_WELCOME_PAIRING,
     val screenHistory: List<ChildScreenId> = emptyList(),
-    val isPaired: Boolean = true,
+    val isPaired: Boolean = false,
     val pairedFamilyId: String = "",
-    val pairingCodeInput: String = "482915",
-    val selectedChildId: String = "child_leo",
-    val household: FamilyHousehold = AnchorSeedData.defaultHousehold("preview"),
-    val children: List<ChildProfile> = AnchorSeedData.defaultChildren("preview"),
-    val pairingCodes: List<PairingCode> = AnchorSeedData.defaultPairingCodes("preview"),
-    val appRules: List<AppRule> = AnchorSeedData.defaultAppRules("preview"),
-    val schedules: List<ScheduleRoutine> = AnchorSeedData.defaultSchedules("preview"),
-    val geofences: List<SafeGeofence> = AnchorSeedData.defaultGeofences("preview"),
-    val alerts: List<SafetyAlert> = AnchorSeedData.defaultAlerts("preview"),
-    val requests: List<ChildRequest> = AnchorSeedData.defaultRequests("preview"),
-    val messages: List<FamilyMessage> = AnchorSeedData.defaultMessages("preview"),
-    val tasks: List<FamilyTask> = AnchorSeedData.defaultTasks("preview"),
-    val guardians: List<GuardianContact> = AnchorSeedData.defaultGuardians("preview"),
-    val premiumConfig: PremiumFilterConfig = AnchorSeedData.defaultPremiumConfig("preview"),
+    val pairingCodeInput: String = "",
+    val selectedChildId: String = "",
+    val household: FamilyHousehold = FamilyHousehold(familyName = "My Family", subscriptionTier = "FREE", subscriptionActive = false),
+    val children: List<ChildProfile> = emptyList(),
+    val pairingCodes: List<PairingCode> = emptyList(),
+    val appRules: List<AppRule> = emptyList(),
+    val schedules: List<ScheduleRoutine> = emptyList(),
+    val geofences: List<SafeGeofence> = emptyList(),
+    val alerts: List<SafetyAlert> = emptyList(),
+    val requests: List<ChildRequest> = emptyList(),
+    val messages: List<FamilyMessage> = emptyList(),
+    val tasks: List<FamilyTask> = emptyList(),
+    val guardians: List<GuardianContact> = emptyList(),
+    val premiumConfig: PremiumFilterConfig = PremiumFilterConfig(),
     val permissionSnapshot: RealPermissionSnapshot = RealPermissionSnapshot(),
     val realUsageApps: List<RealUsageAppItem> = emptyList(),
     val offlineQueue: List<OfflineSyncQueueEntity> = emptyList(),
@@ -77,21 +78,46 @@ data class AnchorChildUiState(
     val sosDispatchedActive: Boolean = false,
     val liveSessionState: LiveSessionState = LiveSessionState(),
     val statusBannerMessage: String? = null,
-    val wellbeingTrustPoints: Int = 92,
-    val bedtimeStreakDays: Int = 5
+    val wellbeingTrustPoints: Int = 0,
+    val bedtimeStreakDays: Int = 0
 ) {
     val activeChild: ChildProfile
         get() = children.firstOrNull { it.childId == selectedChildId }
             ?: children.firstOrNull()
-            ?: AnchorSeedData.defaultChildren("preview").first()
+            ?: ChildProfile(
+                childId = "",
+                familyId = "",
+                ownerUid = "",
+                name = "This device",
+                age = 0,
+                gradeLabel = "",
+                avatarInitials = "",
+                deviceName = listOf(Build.MANUFACTURER.orEmpty(), Build.MODEL.orEmpty()).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Android device" },
+                deviceModel = Build.MODEL.orEmpty().ifBlank { "Android device" },
+                osVersion = Build.VERSION.RELEASE.orEmpty(),
+                batteryLevel = 0,
+                chargingStatus = "Unknown",
+                networkType = "Unknown",
+                networkName = "",
+                storageFreeGb = 0.0,
+                syncStatus = "PENDING",
+                lastSyncLabel = "Awaiting secure pairing",
+                usedMinutesToday = 0,
+                dailyAllowanceMinutes = 0,
+                currentMode = "Not configured",
+                locationLabel = "Location unavailable",
+                latitude = 0.0,
+                longitude = 0.0,
+                knoxVerified = false,
+                accessibilityEnabled = false,
+                deviceAdminEnabled = false
+            )
 
     val isEffectiveOnline: Boolean
         get() = isNetworkOnline && !isOfflineSimulated
 
     val targetFamilyKey: String
-        get() = pairedFamilyId.ifBlank {
-            currentUser?.uid?.let { "fam_$it" } ?: household.familyId
-        }
+        get() = pairedFamilyId
 }
 
 class AnchorChildViewModel(application: Application) : AndroidViewModel(application) {
@@ -119,18 +145,67 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     private fun observePersistedPairingSession() {
         viewModelScope.launch {
             pairingSessionStore.sessionFlow.collectLatest { session ->
-                if (session.isPaired && session.familyId.isNotBlank()) {
+                val user = _uiState.value.currentUser
+                if (user != null && session.isPaired && session.familyId.isNotBlank() &&
+                    (!_uiState.value.isPaired ||
+                        _uiState.value.pairedFamilyId != session.familyId ||
+                        _uiState.value.selectedChildId != session.childId)
+                ) {
+                    restoreVerifiedPairingSession(user, session.familyId, session.childId)
+                } else if (!session.isPaired || session.familyId.isBlank()) {
+                    firestoreListenersJob?.cancel()
                     _uiState.value = _uiState.value.copy(
-                        isPaired = true,
-                        pairedFamilyId = session.familyId,
-                        selectedChildId = session.childId
+                        isPaired = false,
+                        pairedFamilyId = "",
+                        selectedChildId = "",
+                        currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
                     )
-                    val user = _uiState.value.currentUser
-                    if (user != null) {
-                        startRealtimeHouseholdStreams(user, session.familyId)
-                    }
                 }
             }
+        }
+    }
+
+    private suspend fun restoreVerifiedPairingSession(
+        user: FirebaseUser,
+        familyId: String,
+        childId: String
+    ) {
+        val verification = repository.verifyPairingSession(familyId, childId)
+        if (verification.verified) {
+            _uiState.value = _uiState.value.copy(
+                isPaired = true,
+                pairedFamilyId = verification.familyId,
+                selectedChildId = verification.childId,
+                currentScreen = if (_uiState.value.currentScreen == ChildScreenId.C01_WELCOME_PAIRING) {
+                    ChildScreenId.C02_PERMISSION_EDUCATION
+                } else {
+                    _uiState.value.currentScreen
+                },
+                statusBannerMessage = "Saved pairing verified with ${verification.childName}."
+            )
+            startRealtimeHouseholdStreams(user, verification.familyId)
+        } else if (verification.serverResponded) {
+            pairingSessionStore.clearPairingSession()
+            firestoreListenersJob?.cancel()
+            _uiState.value = _uiState.value.copy(
+                isPaired = false,
+                pairedFamilyId = "",
+                selectedChildId = "",
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                statusBannerMessage = verification.errorMessage
+                    ?: "This device is no longer paired. Enter a new code from Anchor Parent."
+            )
+        } else {
+            firestoreListenersJob?.cancel()
+            _uiState.value = _uiState.value.copy(
+                isPaired = false,
+                pairedFamilyId = "",
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                statusBannerMessage = "Could not reach Anchor Cloud to verify this saved pairing. Your saved pairing is retained; reconnect and retry."
+            )
         }
     }
 
@@ -150,10 +225,26 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                     authErrorMessage = null
                 )
                 if (user != null) {
-                    val activeFamId = _uiState.value.pairedFamilyId.ifBlank { "fam_${user.uid}" }
-                    startRealtimeHouseholdStreams(user, activeFamId)
+                    val session = pairingSessionStore.sessionFlow.first()
+                    if (session.isPaired && session.familyId.isNotBlank()) {
+                        restoreVerifiedPairingSession(user, session.familyId, session.childId)
+                    } else {
+                        firestoreListenersJob?.cancel()
+                        _uiState.value = _uiState.value.copy(
+                            isPaired = false,
+                            pairedFamilyId = "",
+                            currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                        )
+                    }
                 } else {
                     firestoreListenersJob?.cancel()
+                    _uiState.value = _uiState.value.copy(
+                        isPaired = false,
+                        pairedFamilyId = "",
+                        currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                    )
                 }
             }
         }
@@ -162,23 +253,40 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     private fun startRealtimeHouseholdStreams(user: FirebaseUser, familyIdOrUid: String) {
         firestoreListenersJob?.cancel()
         firestoreListenersJob = viewModelScope.launch {
-            val uid = user.uid
-            val targetFamily = familyIdOrUid.ifBlank { "fam_$uid" }
-
-            if (targetFamily == "fam_$uid") {
-                try {
-                    repository.ensureSeeded(
-                        uid = uid,
-                        displayName = user.displayName ?: "Leo Jenkins",
-                        email = user.email ?: "leo@anchor.family"
-                    )
-                } catch (e: Exception) {
-                    _uiState.value = _uiState.value.copy(
-                        statusBannerMessage = "Using cached local rules while connecting: ${e.localizedMessage ?: "Offline"}"
-                    )
-                }
+            val targetFamily = familyIdOrUid
+            if (targetFamily.isBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    isPaired = false,
+                    pairedFamilyId = "",
+                    currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                    statusBannerMessage = "Pair this device with Anchor Parent before syncing family data."
+                )
+                return@launch
             }
 
+            launch {
+                repository.observePairedDeviceMembership(targetFamily, user.uid)
+                    .catch { error ->
+                        _uiState.value = _uiState.value.copy(
+                            statusBannerMessage = "Pairing membership listener paused: ${error.localizedMessage ?: "Reconnect to verify this device."}"
+                        )
+                    }
+                    .collectLatest { active ->
+                        if (!active) {
+                            pairingSessionStore.clearPairingSession()
+                            _uiState.value = _uiState.value.copy(
+                                isPaired = false,
+                                pairedFamilyId = "",
+                                selectedChildId = "",
+                                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                                statusBannerMessage = "Anchor Parent unpaired this device. Enter a new one-time code to reconnect."
+                            )
+                            firestoreListenersJob?.cancel()
+                        }
+                    }
+            }
             launch {
                 repository.observeHousehold(targetFamily).collectLatest { household ->
                     if (household != null) {
@@ -190,13 +298,6 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 repository.observeChildren(targetFamily).collectLatest { list ->
                     if (list.isNotEmpty()) {
                         _uiState.value = _uiState.value.copy(children = list)
-                    }
-                }
-            }
-            launch {
-                repository.observePairingCodes(targetFamily).collectLatest { codes ->
-                    if (codes.isNotEmpty()) {
-                        _uiState.value = _uiState.value.copy(pairingCodes = codes)
                     }
                 }
             }
@@ -358,6 +459,14 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     // ========================================================================
 
     fun navigateTo(screen: ChildScreenId) {
+        if (!_uiState.value.isPaired && screen != ChildScreenId.C01_WELCOME_PAIRING) {
+            _uiState.value = _uiState.value.copy(
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                        screenHistory = emptyList(),
+                statusBannerMessage = "Verify a Parent-issued pairing code before opening family features."
+            )
+            return
+        }
         val current = _uiState.value.currentScreen
         if (current == screen) return
         val updatedHistory = (_uiState.value.screenHistory + current).takeLast(12)
@@ -368,10 +477,23 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun navigateBack(): Boolean {
+        if (!_uiState.value.isPaired) {
+            val changed = _uiState.value.currentScreen != ChildScreenId.C01_WELCOME_PAIRING
+            _uiState.value = _uiState.value.copy(
+                currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
+                screenHistory = emptyList()
+            )
+            return changed
+        }
         val history = _uiState.value.screenHistory
         if (history.isEmpty()) {
-            if (_uiState.value.currentScreen != ChildScreenId.C03_TODAY_SCREEN_TIME) {
-                _uiState.value = _uiState.value.copy(currentScreen = ChildScreenId.C03_TODAY_SCREEN_TIME)
+            val safeHome = if (_uiState.value.isPaired) {
+                ChildScreenId.C03_TODAY_SCREEN_TIME
+            } else {
+                ChildScreenId.C01_WELCOME_PAIRING
+            }
+            if (_uiState.value.currentScreen != safeHome) {
+                _uiState.value = _uiState.value.copy(currentScreen = safeHome)
                 return true
             }
             return false
@@ -416,6 +538,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val perms = systemMonitor.inspectPermissions()
         val (batteryPct, chargingLabel) = systemMonitor.readBatteryTelemetry()
         val (netType, netName) = systemMonitor.readNetworkTelemetry()
+        val wasOnline = _uiState.value.isNetworkOnline
         val isOnline = systemMonitor.isNetworkOnline()
         val freeGb = systemMonitor.readFreeStorageGb()
         val realUsage = systemMonitor.queryTodayRealUsageStats()
@@ -451,8 +574,18 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             children = updatedChildren
         )
 
+        if (!wasOnline && isOnline) {
+            viewModelScope.launch {
+                val session = pairingSessionStore.sessionFlow.first()
+                val user = _uiState.value.currentUser
+                if (user != null && session.isPaired && session.familyId.isNotBlank()) {
+                    restoreVerifiedPairingSession(user, session.familyId, session.childId)
+                }
+            }
+        }
+
         val uid = _uiState.value.currentUser?.uid
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             val targetFam = _uiState.value.targetFamilyKey
             viewModelScope.launch {
                 try {
@@ -486,7 +619,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             )
 
             val uid = _uiState.value.currentUser?.uid
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     repository.updateChildDeviceTelemetry(_uiState.value.targetFamilyKey, updatedChild)
                     _uiState.value = _uiState.value.copy(
@@ -514,15 +647,11 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.value = _uiState.value.copy(pairingCodeInput = filtered)
     }
 
-    fun selectChildProfile(childId: String) {
-        _uiState.value = _uiState.value.copy(selectedChildId = childId)
-    }
-
     fun submitPairingCode() {
         val code = _uiState.value.pairingCodeInput.trim()
-        if (code.length < 6) {
+        if (code.filter { it.isDigit() }.length != 6) {
             _uiState.value = _uiState.value.copy(
-                statusBannerMessage = "Please enter the complete 6-digit pairing code shown on your Parent App."
+                statusBannerMessage = "Please enter the complete 6-digit pairing code shown in Anchor Parent."
             )
             return
         }
@@ -531,12 +660,11 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val user = _uiState.value.currentUser
         viewModelScope.launch {
             if (user != null && _uiState.value.isEffectiveOnline) {
-                val targetFam = _uiState.value.pairedFamilyId.ifBlank { "fam_${user.uid}" }
+                _uiState.value = _uiState.value.copy(
+                    statusBannerMessage = "Verifying the one-time pairing code securely..."
+                )
                 val redemption = repository.redeemPairingCode(
-                    childUid = user.uid,
-                    targetFamilyIdOrUid = targetFam,
                     rawCode = code,
-                    childIdHint = child.childId,
                     deviceName = child.deviceName,
                     deviceModel = child.deviceModel,
                     osVersion = child.osVersion
@@ -553,19 +681,21 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                         isPaired = true,
                         pairedFamilyId = redemption.familyId,
                         selectedChildId = redemption.childId,
-                        statusBannerMessage = "Verified & paired with ${redemption.familyId} for ${redemption.childName}!",
+                        statusBannerMessage = "Verified & paired with ${redemption.childName}!",
                         currentScreen = ChildScreenId.C02_PERMISSION_EDUCATION
                     )
                     startRealtimeHouseholdStreams(user, redemption.familyId)
                 } else {
                     _uiState.value = _uiState.value.copy(
+                        isPaired = false,
+                        pairedFamilyId = "",
                         statusBannerMessage = redemption.errorMessage
-                            ?: "Pairing code verification failed on server."
+                            ?: "Pairing code verification failed on the trusted server."
                     )
                 }
             } else {
                 _uiState.value = _uiState.value.copy(
-                    statusBannerMessage = "Sign in with Google while online so Anchor Cloud can verify and consume your one-time pairing code."
+                    statusBannerMessage = "Sign in with Google and connect to the internet so Anchor Cloud can verify this one-time pairing code."
                 )
             }
         }
@@ -593,7 +723,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val uid = _uiState.value.currentUser?.uid
 
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val created = repository.submitChildRequest(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -703,7 +833,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                 child.locationLabel
             }
 
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val alert = repository.triggerChildSosBeacon(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -750,7 +880,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val child = _uiState.value.activeChild
         val uid = _uiState.value.currentUser?.uid
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val alert = repository.sendSafeZoneCheckIn(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -792,7 +922,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         val uid = _uiState.value.currentUser?.uid
 
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     val msg = repository.sendFamilyMessage(
                         familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -837,7 +967,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     fun toggleTaskCompleted(task: FamilyTask) {
         val uid = _uiState.value.currentUser?.uid
         viewModelScope.launch {
-            if (uid != null && _uiState.value.isEffectiveOnline) {
+            if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
                 try {
                     repository.markTaskCompletedByChild(_uiState.value.targetFamilyKey, task)
                 } catch (_: Exception) {
@@ -896,31 +1026,19 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
 
         _uiState.value = _uiState.value.copy(
             liveSessionState = session.copy(
-                status = LiveSessionStatus.ACTIVE_STREAMING,
+                status = LiveSessionStatus.CONSENT_GRANTED_PENDING_CONNECTION,
                 remainingSeconds = 600,
-                startedAtLabel = SimpleDateFormat("h:mm:ss a", Locale.US).format(Date())
+                startedAtLabel = "Not connected"
             ),
-            statusBannerMessage = "Live ${session.modality.label} approved • You can stop it at any second."
+            statusBannerMessage = "Consent recorded. No media is being captured or transmitted: secure streaming has not been established."
         )
         navigateTo(ChildScreenId.C14_ACTIVE_LIVE_SESSION)
 
+        // Do not run a streaming timer or report a live hardware stream until a
+        // real, authenticated, OS-consented media track is established.
         liveTimerJob?.cancel()
-        liveTimerJob = viewModelScope.launch {
-            while (_uiState.value.liveSessionState.remainingSeconds > 0 &&
-                _uiState.value.liveSessionState.status == LiveSessionStatus.ACTIVE_STREAMING
-            ) {
-                delay(1000L)
-                val rem = _uiState.value.liveSessionState.remainingSeconds - 1
-                _uiState.value = _uiState.value.copy(
-                    liveSessionState = _uiState.value.liveSessionState.copy(remainingSeconds = rem)
-                )
-            }
-            if (_uiState.value.liveSessionState.remainingSeconds <= 0) {
-                stopActiveLiveSessionImmediately(reason = "10-minute safety cap reached")
-            }
-        }
 
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
                     familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -946,7 +1064,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
         )
         sendChatMessage("Declined ${session.modality.label}: $declineMessage")
 
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
                     familyIdOrUid = _uiState.value.targetFamilyKey,
@@ -975,7 +1093,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             statusBannerMessage = "Live session terminated immediately • Hardware stream closed."
         )
 
-        if (uid != null && _uiState.value.isEffectiveOnline) {
+        if (uid != null && _uiState.value.isPaired && _uiState.value.isEffectiveOnline) {
             viewModelScope.launch {
                 repository.recordLiveSessionAuditEvent(
                     familyIdOrUid = _uiState.value.targetFamilyKey,

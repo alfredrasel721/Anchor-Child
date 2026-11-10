@@ -1,4 +1,4 @@
-const { test, before, after, beforeEach } = require('node:test');
+const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {
@@ -7,10 +7,11 @@ const {
   assertFails,
 } = require('@firebase/rules-unit-testing');
 
-const PROJECT_ID = 'gen-lang-client-0963224775';
-const DATABASE_ID = 'ai-studio-android-anchorch-710012f1-419e-46fb-87fd-4e0fce481e8e';
+const PROJECT_ID = 'demo-anchor-local';
+const DATABASE_ID = 'ai-studio-anchorfamilysafe-1f622f51-243e-4d62-9cb1-9fdaf9b5dc9d';
 
 let testEnv;
+let testCounter = 0;
 
 before(async () => {
   testEnv = await initializeTestEnvironment({
@@ -23,452 +24,228 @@ before(async () => {
   });
 });
 
-beforeEach(async () => {
-  await testEnv.clearFirestore();
-});
-
 after(async () => {
-  if (testEnv) {
-    await testEnv.cleanup();
-  }
+  if (testEnv) await testEnv.cleanup();
 });
 
-async function seedParentAndPairingCode(parentDb, parentUid, codeObj) {
+async function seedVerifiedFamily() {
+  testCounter += 1;
+  const parentUid = `parent_${testCounter}`;
+  const childUid = `child_device_${testCounter}`;
   const familyId = `fam_${parentUid}`;
-  await assertSucceeds(
-    parentDb.collection('families').doc(familyId).set({
+  const childId = 'child_leo';
+  const codeId = `pair_${testCounter}`;
+  const lookupHash = `test_lookup_hash_${testCounter}`;
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore(DATABASE_ID);
+    await db.doc(`families/${familyId}`).set({
       familyId,
-      familyName: 'Jenkins Household',
+      familyName: 'Test Household',
       ownerUid: parentUid,
-      subscriptionTier: 'PREMIUM_ANNUAL',
-      subscriptionActive: true,
-    })
-  );
-  await assertSucceeds(
-    parentDb.collection('families').doc(familyId).collection('children').doc('child_leo').set({
-      childId: 'child_leo',
+      subscriptionTier: 'FREE',
+      subscriptionActive: false,
+    });
+    await db.doc(`families/${familyId}/children/${childId}`).set({
       familyId,
+      childId,
       ownerUid: parentUid,
       name: 'Leo',
       age: 11,
-      dailyAllowanceMinutes: 150,
-      usedMinutesToday: 45,
-    })
-  );
-  if (codeObj) {
-    await assertSucceeds(
-      parentDb
-        .collection('families')
-        .doc(familyId)
-        .collection('pairingCodes')
-        .doc(codeObj.codeId)
-        .set(codeObj)
-    );
-  }
+      dailyAllowanceMinutes: 120,
+      usedMinutesToday: 35,
+      batteryLevel: 80,
+      locationLabel: 'Home',
+    });
+    await db.doc(`families/${familyId}/pairingCodes/${codeId}`).set({
+      codeId,
+      familyId,
+      ownerUid: parentUid,
+      childId,
+      childName: 'Leo',
+      code: '',
+      expiresAtEpochMs: Date.now() + 600000,
+      status: 'ACTIVE',
+      revoked: false,
+    });
+    await db.doc(`families/${familyId}/pairedDevices/${childUid}`).set({
+      deviceId: childUid,
+      childUid,
+      familyId,
+      ownerUid: parentUid,
+      childId,
+      childName: 'Leo',
+      codeId,
+      redeemedCode: '',
+      status: 'PAIRED',
+      pairedAtEpochMs: Date.now(),
+      lastHeartbeatEpochMs: Date.now(),
+    });
+    await db.doc(`pairingCodeLookups/${lookupHash}`).set({
+      familyId,
+      codeId,
+      childId,
+      status: 'ACTIVE',
+    });
+    await db.doc(`pairingCodeLookupIndexes/${codeId}`).set({
+      familyId,
+      codeId,
+      lookupId: lookupHash,
+      status: 'ACTIVE',
+    });
+    await db.doc(`pairingRateLimits/${childUid}`).set({
+      childUid,
+      failedCount: 1,
+      windowStartEpochMs: Date.now(),
+    });
+  });
+
+  return { parentUid, childUid, familyId, childId, codeId, lookupHash };
 }
 
-test('1. Valid Parent access: Parent can create household, child profiles, appRules, schedules, and pairingCodes', async () => {
-  const parentUid = 'parent_sarah';
-  const familyId = `fam_${parentUid}`;
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
+test('Parent cannot mint Premium entitlement in Firestore without server verification', async () => {
+  const seeded = await seedVerifiedFamily();
+  const parentDb = testEnv.authenticatedContext(seeded.parentUid).firestore(DATABASE_ID);
+  const familyRef = parentDb.doc(`families/${seeded.familyId}`);
 
-  await seedParentAndPairingCode(parentDb, parentUid, {
-    codeId: 'pair_child_leo_482915',
-    familyId,
-    ownerUid: parentUid,
-    childId: 'child_leo',
-    childName: 'Leo',
-    code: '482915',
-    expiresAtEpochMs: Date.now() + 600_000,
+  // Ordinary family metadata remains editable.
+  await assertSucceeds(familyRef.update({ familyName: 'Renamed Household' }));
+
+  // Even the legitimate owner cannot enable or switch a paid tier.
+  await assertFails(familyRef.update({ subscriptionActive: true }));
+  await assertFails(familyRef.update({ subscriptionTier: 'PREMIUM_ANNUAL' }));
+  await assertFails(familyRef.set({
+    familyId: seeded.familyId,
+    ownerUid: seeded.parentUid,
+    familyName: 'Forged Premium Household',
+    subscriptionTier: 'PREMIUM_MONTHLY',
+    subscriptionActive: true,
+  }));
+
+  // The created family must start with Free entitlement.
+  const forgedRef = parentDb.doc(`families/fam_${seeded.parentUid}_forged`);
+  await assertFails(forgedRef.set({
+    familyId: `fam_${seeded.parentUid}_forged`,
+    ownerUid: seeded.parentUid,
+    familyName: 'Forged Family',
+    subscriptionTier: 'PREMIUM_ANNUAL',
+    subscriptionActive: true,
+  }));
+});
+
+test('Parent can read pairing status but cannot create or modify pairing secrets from the app', async () => {
+  const seeded = await seedVerifiedFamily();
+  const parentDb = testEnv.authenticatedContext(seeded.parentUid).firestore(DATABASE_ID);
+  const codePath = `families/${seeded.familyId}/pairingCodes/${seeded.codeId}`;
+
+  const code = await assertSucceeds(parentDb.doc(codePath).get());
+  assert.equal(code.data().status, 'ACTIVE');
+  assert.equal(code.data().code, '');
+  assert.equal(code.data().codeHash, undefined);
+  await assertSucceeds(parentDb.collection(`families/${seeded.familyId}/pairingCodes`).get());
+
+  await assertFails(parentDb.doc(codePath).update({ status: 'REVOKED' }));
+  await assertFails(parentDb.doc(`families/${seeded.familyId}/pairingCodes/fake`).set({
+    codeId: 'fake',
+    familyId: seeded.familyId,
+    ownerUid: seeded.parentUid,
+    childId: seeded.childId,
+    code: '123456',
     status: 'ACTIVE',
-  });
-
-  await assertSucceeds(
-    parentDb.collection('families').doc(familyId).collection('appRules').doc('rule_mc').set({
-      ruleId: 'rule_mc',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      packageName: 'com.mojang.minecraftpe',
-      appName: 'Minecraft',
-      category: 'Games',
-      dailyLimitMinutes: 45,
-      usedMinutesToday: 20,
-      status: 'ENFORCED',
-    })
-  );
-
-  const snap = await assertSucceeds(
-    parentDb.collection('families').doc(familyId).collection('appRules').doc('rule_mc').get()
-  );
-  assert.equal(snap.data().dailyLimitMinutes, 45);
+  }));
 });
 
-test('2. Valid paired Child access: Atomic pairing redemption succeeds and paired Child can read rules and submit PENDING requests, SOS alerts, and messages', async () => {
-  const parentUid = 'parent_sarah';
-  const childUid = 'child_device_leo';
-  const familyId = `fam_${parentUid}`;
-  const codeId = 'pair_child_leo_482915';
+test('Verified Child can read family data and update telemetry, but cannot read pairing codes or change policy', async () => {
+  const seeded = await seedVerifiedFamily();
+  const childDb = testEnv.authenticatedContext(seeded.childUid).firestore(DATABASE_ID);
 
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const childDb = testEnv.authenticatedContext(childUid).firestore(DATABASE_ID);
+  await assertSucceeds(childDb.doc(`families/${seeded.familyId}`).get());
+  await assertSucceeds(childDb.doc(`families/${seeded.familyId}/children/${seeded.childId}`).get());
+  await assertSucceeds(childDb.doc(`families/${seeded.familyId}/pairedDevices/${seeded.childUid}`).get());
 
-  await seedParentAndPairingCode(parentDb, parentUid, {
-    codeId,
-    familyId,
-    ownerUid: parentUid,
-    childId: 'child_leo',
+  await assertFails(childDb.doc(`families/${seeded.familyId}/pairingCodes/${seeded.codeId}`).get());
+  await assertFails(childDb.collection(`families/${seeded.familyId}/pairingCodes`).get());
+
+  const childPath = `families/${seeded.familyId}/children/${seeded.childId}`;
+  await assertSucceeds(childDb.doc(childPath).update({
+    usedMinutesToday: 48,
+    batteryLevel: 72,
+    locationLabel: 'School',
+  }));
+  await assertFails(childDb.doc(childPath).update({ dailyAllowanceMinutes: 999 }));
+  await assertFails(childDb.doc(childPath).update({ ownerUid: seeded.childUid }));
+});
+
+test('No mobile client can read or write private pairing lookups, rate limits, or device membership', async () => {
+  const seeded = await seedVerifiedFamily();
+  const parentDb = testEnv.authenticatedContext(seeded.parentUid).firestore(DATABASE_ID);
+  const childDb = testEnv.authenticatedContext(seeded.childUid).firestore(DATABASE_ID);
+  const lookupPath = `pairingCodeLookups/${seeded.lookupHash}`;
+  const ratePath = `pairingRateLimits/${seeded.childUid}`;
+  const lookupIndexPath = `pairingCodeLookupIndexes/${seeded.codeId}`;
+  const notificationTopicPath = `familyNotificationTopics/${seeded.familyId}`;
+  const devicePath = `families/${seeded.familyId}/pairedDevices/${seeded.childUid}`;
+
+  await assertFails(parentDb.doc(lookupPath).get());
+  await assertFails(childDb.doc(lookupPath).get());
+  await assertFails(parentDb.doc(lookupPath).set({ status: 'ACTIVE' }));
+  await assertFails(childDb.doc(lookupPath).set({ status: 'ACTIVE' }));
+  await assertFails(parentDb.doc(ratePath).get());
+  await assertFails(childDb.doc(ratePath).get());
+  await assertFails(parentDb.doc(ratePath).set({ failedCount: 0 }));
+  await assertFails(childDb.doc(ratePath).set({ failedCount: 0 }));
+  await assertFails(parentDb.doc(lookupIndexPath).get());
+  await assertFails(childDb.doc(lookupIndexPath).get());
+  await assertFails(parentDb.doc(lookupIndexPath).set({ lookupId: seeded.lookupHash }));
+  await assertFails(childDb.doc(lookupIndexPath).set({ lookupId: seeded.lookupHash }));
+  await assertFails(parentDb.doc(notificationTopicPath).get());
+  await assertFails(childDb.doc(notificationTopicPath).get());
+  await assertFails(parentDb.doc(notificationTopicPath).set({ topic: 'must-not-be-readable' }));
+  await assertFails(childDb.doc(notificationTopicPath).set({ topic: 'must-not-be-readable' }));
+  await assertFails(childDb.doc(devicePath).update({ status: 'PAIRED', childId: 'another_child' }));
+  await assertFails(childDb.doc(`families/${seeded.familyId}/pairedDevices/fake_device`).set({
+    deviceId: 'fake_device',
+    childUid: 'fake_device',
+    familyId: seeded.familyId,
+    ownerUid: seeded.parentUid,
+    childId: seeded.childId,
+    codeId: seeded.codeId,
+    status: 'PAIRED',
+  }));
+});
+
+test('Verified Child can still send SOS, requests, and family messages', async () => {
+  const seeded = await seedVerifiedFamily();
+  const childDb = testEnv.authenticatedContext(seeded.childUid).firestore(DATABASE_ID);
+  const familyPath = `families/${seeded.familyId}`;
+
+  await assertSucceeds(childDb.doc(`${familyPath}/alerts/sos_${testCounter}`).set({
+    alertId: `sos_${testCounter}`,
+    familyId: seeded.familyId,
+    ownerUid: seeded.parentUid,
+    childId: seeded.childId,
     childName: 'Leo',
-    code: '482915',
-    expiresAtEpochMs: Date.now() + 600_000,
-    status: 'ACTIVE',
-  });
-
-  // Child atomically consumes the active pairing code and registers pairedDevices
-  const batch = childDb.batch();
-  batch.update(
-    childDb.collection('families').doc(familyId).collection('pairingCodes').doc(codeId),
-    {
-      status: 'CONSUMED',
-      redeemedByUid: childUid,
-    }
-  );
-  batch.set(
-    childDb.collection('families').doc(familyId).collection('pairedDevices').doc(childUid),
-    {
-      deviceUid: childUid,
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      codeId,
-      redeemedCode: '482915',
-      status: 'ACTIVE',
-    }
-  );
-  await assertSucceeds(batch.commit());
-
-  // Paired Child can submit a PENDING extra-time request, SOS alert, and chat message
-  await assertSucceeds(
-    childDb.collection('families').doc(familyId).collection('requests').doc('req_01').set({
-      requestId: 'req_01',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      childName: 'Leo',
-      requestType: 'EXTRA_TIME',
-      targetName: 'Minecraft',
-      requestedBonusMinutes: 15,
-      status: 'PENDING',
-    })
-  );
-
-  await assertSucceeds(
-    childDb.collection('families').doc(familyId).collection('alerts').doc('sos_01').set({
-      alertId: 'sos_01',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      childName: 'Leo',
-      title: 'URGENT SOS Emergency Beacon',
-      category: 'SOS',
-      severity: 'CRITICAL',
-      acknowledged: false,
-    })
-  );
-
-  await assertSucceeds(
-    childDb.collection('families').doc(familyId).collection('messages').doc('msg_01').set({
-      messageId: 'msg_01',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      senderName: 'Leo',
-      senderRole: 'CHILD',
-      text: "I'm Safe & Arrived at Oakridge Middle School",
-      isSystemEvent: false,
-    })
-  );
-});
-
-test('3. Invalid pairing code: Child cannot self-register in pairedDevices with wrong code or without consuming code', async () => {
-  const parentUid = 'parent_sarah';
-  const childUid = 'child_device_leo';
-  const familyId = `fam_${parentUid}`;
-  const codeId = 'pair_child_leo_482915';
-
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const childDb = testEnv.authenticatedContext(childUid).firestore(DATABASE_ID);
-
-  await seedParentAndPairingCode(parentDb, parentUid, {
-    codeId,
-    familyId,
-    ownerUid: parentUid,
-    childId: 'child_leo',
-    childName: 'Leo',
-    code: '482915',
-    expiresAtEpochMs: Date.now() + 600_000,
-    status: 'ACTIVE',
-  });
-
-  // Attempt 1: Direct write to pairedDevices without consuming pairingCode
-  await assertFails(
-    childDb.collection('families').doc(familyId).collection('pairedDevices').doc(childUid).set({
-      deviceUid: childUid,
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      codeId,
-      redeemedCode: '482915',
-      status: 'ACTIVE',
-    })
-  );
-
-  // Attempt 2: Wrong 6-digit code in batch
-  const wrongBatch = childDb.batch();
-  wrongBatch.update(
-    childDb.collection('families').doc(familyId).collection('pairingCodes').doc(codeId),
-    { status: 'CONSUMED', redeemedByUid: childUid }
-  );
-  wrongBatch.set(
-    childDb.collection('families').doc(familyId).collection('pairedDevices').doc(childUid),
-    {
-      deviceUid: childUid,
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      codeId,
-      redeemedCode: '999999', // Mismatched code!
-      status: 'ACTIVE',
-    }
-  );
-  await assertFails(wrongBatch.commit());
-});
-
-test('4. Expired pairing code: Code past 10-minute expiration is strictly rejected', async () => {
-  const parentUid = 'parent_sarah';
-  const childUid = 'child_device_leo';
-  const familyId = `fam_${parentUid}`;
-  const codeId = 'pair_expired_111222';
-
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const childDb = testEnv.authenticatedContext(childUid).firestore(DATABASE_ID);
-
-  await seedParentAndPairingCode(parentDb, parentUid, {
-    codeId,
-    familyId,
-    ownerUid: parentUid,
-    childId: 'child_leo',
-    childName: 'Leo',
-    code: '111222',
-    expiresAtEpochMs: Date.now() - 60_000, // Expired 1 minute ago
-    status: 'ACTIVE',
-  });
-
-  const expiredBatch = childDb.batch();
-  expiredBatch.update(
-    childDb.collection('families').doc(familyId).collection('pairingCodes').doc(codeId),
-    { status: 'CONSUMED', redeemedByUid: childUid }
-  );
-  expiredBatch.set(
-    childDb.collection('families').doc(familyId).collection('pairedDevices').doc(childUid),
-    {
-      deviceUid: childUid,
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      codeId,
-      redeemedCode: '111222',
-      status: 'ACTIVE',
-    }
-  );
-  await assertFails(expiredBatch.commit());
-});
-
-test('5. Reused pairing code: Already CONSUMED pairing code cannot be redeemed again', async () => {
-  const parentUid = 'parent_sarah';
-  const secondDeviceUid = 'child_device_second';
-  const familyId = `fam_${parentUid}`;
-  const codeId = 'pair_consumed_482915';
-
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const secondChildDb = testEnv.authenticatedContext(secondDeviceUid).firestore(DATABASE_ID);
-
-  await seedParentAndPairingCode(parentDb, parentUid, {
-    codeId,
-    familyId,
-    ownerUid: parentUid,
-    childId: 'child_leo',
-    childName: 'Leo',
-    code: '482915',
-    expiresAtEpochMs: Date.now() + 600_000,
-    status: 'CONSUMED', // Already consumed!
-  });
-
-  const reuseBatch = secondChildDb.batch();
-  reuseBatch.update(
-    secondChildDb.collection('families').doc(familyId).collection('pairingCodes').doc(codeId),
-    { status: 'CONSUMED', redeemedByUid: secondDeviceUid }
-  );
-  reuseBatch.set(
-    secondChildDb
-      .collection('families')
-      .doc(familyId)
-      .collection('pairedDevices')
-      .doc(secondDeviceUid),
-    {
-      deviceUid: secondDeviceUid,
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      codeId,
-      redeemedCode: '482915',
-      status: 'ACTIVE',
-    }
-  );
-  await assertFails(reuseBatch.commit());
-});
-
-test('6. Unauthenticated access: Unauthenticated client cannot read or write any family documents', async () => {
-  const parentUid = 'parent_sarah';
-  const familyId = `fam_${parentUid}`;
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const unauthDb = testEnv.unauthenticatedContext().firestore(DATABASE_ID);
-
-  await seedParentAndPairingCode(parentDb, parentUid, null);
-
-  await assertFails(unauthDb.collection('families').doc(familyId).get());
-  await assertFails(
-    unauthDb.collection('families').doc(familyId).collection('children').doc('child_leo').get()
-  );
-});
-
-test('7. Cross-family access: Authenticated stranger from another family is strictly rejected', async () => {
-  const parentUid = 'parent_sarah';
-  const strangerUid = 'parent_stranger';
-  const familyId = `fam_${parentUid}`;
-
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const strangerDb = testEnv.authenticatedContext(strangerUid).firestore(DATABASE_ID);
-
-  await seedParentAndPairingCode(parentDb, parentUid, null);
-
-  await assertFails(strangerDb.collection('families').doc(familyId).get());
-  await assertFails(
-    strangerDb.collection('families').doc(familyId).collection('children').get()
-  );
-  await assertFails(
-    strangerDb.collection('families').doc(familyId).collection('requests').doc('req_hack').set({
-      requestId: 'req_hack',
-      familyId,
-      ownerUid: strangerUid,
-      childId: 'child_leo',
-      requestType: 'EXTRA_TIME',
-      targetName: 'Minecraft',
-      status: 'PENDING',
-    })
-  );
-});
-
-test('8. Unauthorized modification of parental settings: Paired Child cannot modify appRules, schedules, subscriptionTier, dailyAllowanceMinutes, or self-approve requests', async () => {
-  const parentUid = 'parent_sarah';
-  const childUid = 'child_device_leo';
-  const familyId = `fam_${parentUid}`;
-  const codeId = 'pair_child_leo_482915';
-
-  const parentDb = testEnv.authenticatedContext(parentUid).firestore(DATABASE_ID);
-  const childDb = testEnv.authenticatedContext(childUid).firestore(DATABASE_ID);
-
-  await seedParentAndPairingCode(parentDb, parentUid, {
-    codeId,
-    familyId,
-    ownerUid: parentUid,
-    childId: 'child_leo',
-    childName: 'Leo',
-    code: '482915',
-    expiresAtEpochMs: Date.now() + 600_000,
-    status: 'ACTIVE',
-  });
-
-  // Pair the child device
-  const batch = childDb.batch();
-  batch.update(
-    childDb.collection('families').doc(familyId).collection('pairingCodes').doc(codeId),
-    { status: 'CONSUMED', redeemedByUid: childUid }
-  );
-  batch.set(
-    childDb.collection('families').doc(familyId).collection('pairedDevices').doc(childUid),
-    {
-      deviceUid: childUid,
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      codeId,
-      redeemedCode: '482915',
-      status: 'ACTIVE',
-    }
-  );
-  await assertSucceeds(batch.commit());
-
-  // 8a. Child CANNOT create or modify appRules
-  await assertFails(
-    childDb.collection('families').doc(familyId).collection('appRules').doc('rule_mc').set({
-      ruleId: 'rule_mc',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      packageName: 'com.mojang.minecraftpe',
-      appName: 'Minecraft',
-      category: 'Games',
-      dailyLimitMinutes: 1440,
-      status: 'WHITELISTED',
-    })
-  );
-
-  // 8b. Child CANNOT modify schedules
-  await assertFails(
-    childDb.collection('families').doc(familyId).collection('schedules').doc('sched_bed').set({
-      scheduleId: 'sched_bed',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      title: 'Bedtime',
-      windowDescription: '9:00 PM - 7:00 AM',
-      enabled: false,
-    })
-  );
-
-  // 8c. Child CANNOT modify FamilyHousehold subscription settings
-  await assertFails(
-    childDb.collection('families').doc(familyId).update({
-      subscriptionActive: false,
-    })
-  );
-
-  // 8d. Child CANNOT increase their own dailyAllowanceMinutes on ChildProfile
-  await assertFails(
-    childDb.collection('families').doc(familyId).collection('children').doc('child_leo').update({
-      dailyAllowanceMinutes: 999,
-    })
-  );
-
-  // 8e. Child CAN update their own usedMinutesToday / batteryLevel telemetry while keeping dailyAllowanceMinutes unchanged!
-  await assertSucceeds(
-    childDb.collection('families').doc(familyId).collection('children').doc('child_leo').update({
-      usedMinutesToday: 60,
-      batteryLevel: 79,
-    })
-  );
-
-  // 8f. Child CANNOT create a pre-APPROVED request
-  await assertFails(
-    childDb.collection('families').doc(familyId).collection('requests').doc('req_self_approve').set({
-      requestId: 'req_self_approve',
-      familyId,
-      ownerUid: parentUid,
-      childId: 'child_leo',
-      requestType: 'EXTRA_TIME',
-      targetName: 'Minecraft',
-      status: 'APPROVED',
-    })
-  );
+    title: 'Emergency SOS',
+    category: 'SOS',
+    severity: 'CRITICAL',
+    acknowledged: false,
+  }));
+  await assertSucceeds(childDb.doc(`${familyPath}/requests/request_${testCounter}`).set({
+    requestId: `request_${testCounter}`,
+    familyId: seeded.familyId,
+    ownerUid: seeded.parentUid,
+    childId: seeded.childId,
+    requestType: 'EXTRA_TIME',
+    targetName: 'Learning App',
+    status: 'PENDING',
+  }));
+  await assertSucceeds(childDb.doc(`${familyPath}/messages/message_${testCounter}`).set({
+    messageId: `message_${testCounter}`,
+    familyId: seeded.familyId,
+    ownerUid: seeded.parentUid,
+    childId: seeded.childId,
+    senderName: 'Leo',
+    senderRole: 'CHILD',
+    text: 'I am safe.',
+  }));
 });

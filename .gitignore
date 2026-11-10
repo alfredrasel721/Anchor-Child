@@ -17,3 +17,8 @@ local.properties
 .env
 debug.keystore
 *-debug.log
+
+# Firebase app config and Android signing credentials (never commit these)
+app/google-services.json
+*.jks
+*.keystore

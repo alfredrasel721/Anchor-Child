@@ -81,7 +81,6 @@ import com.example.viewmodel.AnchorChildUiState
 fun C01WelcomePairingScreen(
     uiState: AnchorChildUiState,
     onUpdatePairingCode: (String) -> Unit,
-    onSelectChild: (String) -> Unit,
     onSubmitPairing: () -> Unit,
     onSignInWithGoogle: () -> Unit,
     onNavigateToPermissions: () -> Unit
@@ -112,7 +111,7 @@ fun C01WelcomePairingScreen(
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "C-01 • CHILD COMPANION ONBOARDING",
+                            text = "• CHILD COMPANION ONBOARDING",
                             style = MaterialTheme.typography.labelSmall,
                             color = StitchSecondary,
                             fontWeight = FontWeight.ExtraBold,
@@ -164,15 +163,23 @@ fun C01WelcomePairingScreen(
                             )
                         }
                         SemanticStatusBadge(
-                            status = if (uiState.currentUser != null) "VERIFIED" else "PENDING"
+                            status = when {
+                                uiState.isPaired -> "PAIRED"
+                                uiState.currentUser != null -> "SIGNED IN"
+                                else -> "PENDING"
+                            }
                         )
                     }
 
                     Text(
                         text = if (uiState.currentUser != null) {
-                            "Signed in as ${uiState.currentUser.displayName ?: uiState.currentUser.email}. Connected to household ${uiState.household.familyName} (${uiState.household.familyId})."
+                            if (uiState.isPaired) {
+                                "Signed in as ${uiState.currentUser.displayName ?: uiState.currentUser.email}. This device is linked to the verified family household."
+                            } else {
+                                "Signed in as ${uiState.currentUser.displayName ?: uiState.currentUser.email}. Enter the one-time code from Anchor Parent to link this device."
+                            }
                         } else {
-                            "Sign in with Google to synchronize live schedules, requests, and SOS alerts with the Anchor Parent App."
+                            "Sign in with Google to securely link this device to the Anchor Parent App."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -226,42 +233,11 @@ fun C01WelcomePairingScreen(
                         }
                     }
 
-                    // Child profile selector pills
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        uiState.children.forEach { child ->
-                            val selected = child.childId == uiState.selectedChildId
-                            Surface(
-                                color = if (selected) StitchPrimaryFixed else StitchSurfaceContainerLow,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        width = if (selected) 2.dp else 1.dp,
-                                        color = if (selected) StitchPrimary else StitchOutlineVariant,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    .clickable { onSelectChild(child.childId) }
-                                    .testTag("select_child_${child.childId}")
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "${child.name} (Age ${child.age})",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = StitchPrimary
-                                    )
-                                    Text(
-                                        text = child.deviceName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    Text(
+                        text = "Anchor Parent will select the correct child profile when this device's one-time code is verified.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     // 6-Digit Visual Code Boxes (Stitch C-01 Design)
                     val padded = uiState.pairingCodeInput.padEnd(6, '•')
@@ -295,7 +271,7 @@ fun C01WelcomePairingScreen(
                     OutlinedTextField(
                         value = uiState.pairingCodeInput,
                         onValueChange = onUpdatePairingCode,
-                        label = { Text("6-Digit Parent Pairing Code (e.g. 482915)") },
+                        label = { Text("6-Digit Parent Pairing Code") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier
@@ -309,6 +285,9 @@ fun C01WelcomePairingScreen(
                     ) {
                         Button(
                             onClick = onSubmitPairing,
+                            enabled = uiState.currentUser != null &&
+                                uiState.isEffectiveOnline &&
+                                uiState.pairingCodeInput.filter { it.isDigit() }.length == 6,
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("verify_pairing_button"),
@@ -319,20 +298,11 @@ fun C01WelcomePairingScreen(
                         }
 
                         OutlinedButton(
-                            onClick = {
-                                onUpdatePairingCode("482915")
-                                onSubmitPairing()
-                            },
-                            modifier = Modifier.testTag("scan_qr_pairing_button"),
+                            onClick = { onUpdatePairingCode("") },
+                            modifier = Modifier.testTag("clear_pairing_code_button"),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
-                                contentDescription = "Use Active Code",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Auto-Fill")
+                            Text("Clear")
                         }
                     }
                 }
@@ -371,14 +341,22 @@ fun C01WelcomePairingScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    OutlinedButton(
-                        onClick = onNavigateToPermissions,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("goto_c02_permissions_button"),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Review Android Permissions (C-02)")
+                    if (uiState.isPaired) {
+                        OutlinedButton(
+                            onClick = onNavigateToPermissions,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("goto_c02_permissions_button"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Review Android Permissions")
+                        }
+                    } else {
+                        Text(
+                            text = "Complete server-verified pairing before reviewing device permissions.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -432,7 +410,7 @@ fun C02PermissionEducationScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "C-02 • Permission Education & Status",
+                                text = "• Permission Education & Status",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -546,7 +524,7 @@ fun C02PermissionEducationScreen(
                 icon = Icons.Default.AccessibilityNew,
                 title = "4. Friendly App Limit Companion",
                 androidApiName = "AnchorAccessibilityService (Window State Only)",
-                whyItMatters = "Detects when a paused or bedtime-restricted app opens so Anchor can show the Next Unlock Window (C-05).",
+                whyItMatters = "Detects when a paused or bedtime-restricted app opens so Anchor can show the Next Unlock Window .",
                 privacyBoundary = "canRetrieveWindowContent is FALSE. Anchor cannot read screen text, chats, or passwords.",
                 isGranted = perms.accessibilityGranted,
                 buttonLabel = if (perms.accessibilityGranted) "Accessibility Companion Active" else "Configure Accessibility Service",
@@ -586,6 +564,7 @@ fun C02PermissionEducationScreen(
         item {
             Button(
                 onClick = onContinueToDashboard,
+                enabled = uiState.isPaired,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
@@ -600,7 +579,7 @@ fun C02PermissionEducationScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Continue to Today's Screen Time (C-03)",
+                    text = "Continue to Today's Screen Time",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )

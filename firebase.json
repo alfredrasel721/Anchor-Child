@@ -1,6 +1,6 @@
 {
   "firestore": {
-    "database": "ai-studio-android-anchorch-710012f1-419e-46fb-87fd-4e0fce481e8e",
+    "database": "ai-studio-anchorfamilysafe-1f622f51-243e-4d62-9cb1-9fdaf9b5dc9d",
     "rules": "firestore.rules"
   },
   "emulators": {

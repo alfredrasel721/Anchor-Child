@@ -1,8 +1,10 @@
 package com.example
 
-import com.example.model.AnchorSeedData
 import com.example.model.ChildScreenId
+import com.example.model.ChildProfile
+import com.example.model.FamilyHousehold
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,13 +18,15 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun seedData_matchesParentAppSchemaContract() {
-        val uid = "test_uid_01"
-        val household = AnchorSeedData.defaultHousehold(uid)
-        assertEquals("fam_test_uid_01", household.familyId)
-        assertEquals(uid, household.ownerUid)
+    fun freshModelsDoNotContainDemoChildOrPaidPlanDefaults() {
+        val child = ChildProfile()
+        val household = FamilyHousehold()
 
-        val children = AnchorSeedData.defaultChildren(uid)
-        assertTrue(children.any { it.childId == "child_leo" && it.familyId == household.familyId })
+        assertEquals("", child.childId)
+        assertEquals("", child.name)
+        assertFalse(child.accessibilityEnabled)
+        assertFalse(child.deviceAdminEnabled)
+        assertEquals("FREE", household.subscriptionTier)
+        assertFalse(household.subscriptionActive)
     }
 }

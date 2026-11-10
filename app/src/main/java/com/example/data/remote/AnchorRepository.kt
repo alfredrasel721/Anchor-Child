@@ -2,7 +2,6 @@ package com.example.data.remote
 
 import android.content.Context
 import com.example.R
-import com.example.model.AnchorSeedData
 import com.example.model.AppRule
 import com.example.model.ChildProfile
 import com.example.model.ChildRequest
@@ -19,12 +18,12 @@ import com.example.model.ScheduleRoutine
 import com.example.model.UserProfile
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
-import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -34,18 +33,18 @@ data class PairingRedemptionResult(
     val verified: Boolean,
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
-    val childName: String = "Leo",
+    val childId: String = "",
+    val childName: String = "",
     val codeId: String = "",
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val serverResponded: Boolean = false
 )
 
 class AnchorRepository(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
-    constructor(context: Context) : this(createDefaultFirestore(context))
-
-    private val secureRandom = SecureRandom()
+    constructor(context: Context) : this(createDefaultFirestore(context), FirebaseAuth.getInstance())
 
     fun familyIdFor(uid: String): String =
         if (uid.startsWith("fam_")) uid else "fam_$uid"
@@ -61,71 +60,15 @@ class AnchorRepository(
         return fmt.format(Date())
     }
 
-    suspend fun ensureSeeded(uid: String, displayName: String, email: String) {
-        val familyId = familyIdFor(uid)
-        val userPath = "users/$uid"
-        try {
-            val userRef = firestore.collection("users").document(uid)
-            val existingUser = userRef.get().await()
-            if (!existingUser.exists()) {
-                val profile = UserProfile(
-                    uid = uid,
-                    displayName = displayName.ifBlank { "Leo Jenkins (Child Device)" },
-                    email = email.ifBlank { "leo.device@anchor.family" },
-                    role = "CHILD_DEVICE",
-                    familyId = familyId,
-                    notificationCadence = "Immediate",
-                    createdAt = Timestamp.now(),
-                    updatedAt = Timestamp.now()
-                )
-                userRef.set(profile).await()
-            }
-
-            val famRef = familyDoc(familyId)
-            val existingFam = famRef.get().await()
-            if (!existingFam.exists()) {
-                val batch = firestore.batch()
-                batch.set(famRef, AnchorSeedData.defaultHousehold(uid, familyId))
-
-                AnchorSeedData.defaultChildren(uid, familyId).forEach { child ->
-                    batch.set(famRef.collection("children").document(child.childId), child)
-                }
-                AnchorSeedData.defaultPairingCodes(uid, familyId).forEach { code ->
-                    batch.set(famRef.collection("pairingCodes").document(code.codeId), code)
-                }
-                AnchorSeedData.defaultAppRules(uid, familyId).forEach { rule ->
-                    batch.set(famRef.collection("appRules").document(rule.ruleId), rule)
-                }
-                AnchorSeedData.defaultSchedules(uid, familyId).forEach { schedule ->
-                    batch.set(famRef.collection("schedules").document(schedule.scheduleId), schedule)
-                }
-                AnchorSeedData.defaultGeofences(uid, familyId).forEach { geo ->
-                    batch.set(famRef.collection("geofences").document(geo.geofenceId), geo)
-                }
-                AnchorSeedData.defaultAlerts(uid, familyId).forEach { alert ->
-                    batch.set(famRef.collection("alerts").document(alert.alertId), alert)
-                }
-                AnchorSeedData.defaultRequests(uid, familyId).forEach { req ->
-                    batch.set(famRef.collection("requests").document(req.requestId), req)
-                }
-                AnchorSeedData.defaultMessages(uid, familyId).forEach { msg ->
-                    batch.set(famRef.collection("messages").document(msg.messageId), msg)
-                }
-                AnchorSeedData.defaultTasks(uid, familyId).forEach { task ->
-                    batch.set(famRef.collection("tasks").document(task.taskId), task)
-                }
-                AnchorSeedData.defaultGuardians(uid, familyId).forEach { guardian ->
-                    batch.set(famRef.collection("guardians").document(guardian.guardianId), guardian)
-                }
-                val prem = AnchorSeedData.defaultPremiumConfig(uid, familyId)
-                batch.set(famRef.collection("premiumConfigs").document(prem.configId), prem)
-
-                batch.commit().await()
-            }
-        } catch (e: Exception) {
-            FirestoreErrorHandler.handleFirestoreError(e, OperationType.WRITE, userPath)
-            throw e
-        }
+    @Deprecated("Child devices must use server-verified Parent pairing; they cannot bootstrap households.")
+    suspend fun ensureSeeded(
+        uid: String,
+        displayName: String,
+        email: String
+    ) {
+        throw SecurityException(
+            "Child devices cannot create family households. Sign in and enter a one-time code from Anchor Parent."
+        )
     }
 
     fun observeHousehold(familyIdOrUid: String): Flow<FamilyHousehold?> = callbackFlow {
@@ -329,204 +272,135 @@ class AnchorRepository(
     }
 
     // ========================================================================
-    // Secure Pairing System (Parent Generation/Revocation + Child Redemption)
+    // Secure Pairing System — all membership and code transitions are server-only
     // ========================================================================
 
-    /**
-     * Generates a cryptographically secure, one-time 6-digit pairing code with 10-minute expiration.
-     * Revokes any prior ACTIVE pairing codes for the same childId.
-     */
     suspend fun createPairingCode(
         parentUid: String,
         childId: String,
         childName: String
     ): PairingCode {
         val familyId = familyIdFor(parentUid)
-        val codeDigits = (100000 + secureRandom.nextInt(900000)).toString()
-        val codeId = "pair_${childId}_$codeDigits"
-        val expiresAt = System.currentTimeMillis() + 600_000L // 10-minute TTL
-
-        val pairing = PairingCode(
-            codeId = codeId,
-            familyId = familyId,
-            ownerUid = parentUid,
-            childId = childId,
-            childName = childName,
-            code = codeDigits,
-            expiresAtEpochMs = expiresAt,
-            status = "ACTIVE",
-            createdAt = Timestamp.now()
+        val data = AnchorWorkerApi.post(
+            auth,
+            "pairing/create",
+            mapOf("familyId" to familyId, "childId" to childId, "childName" to childName)
         )
-
-        val famRef = familyDoc(familyId)
-        val existingSnap = famRef.collection("pairingCodes").get().await()
-        val batch = firestore.batch()
-        existingSnap.documents.forEach { doc ->
-            val old = doc.toObject(PairingCode::class.java)
-            if (old != null && old.childId == childId && old.status == "ACTIVE") {
-                batch.update(doc.reference, "status", "EXPIRED")
-            }
-        }
-        batch.set(famRef.collection("pairingCodes").document(codeId), pairing)
-        batch.commit().await()
-        return pairing
+        return PairingCode(
+            codeId = data.optString("codeId"),
+            familyId = data.optString("familyId", familyId),
+            ownerUid = data.optString("ownerUid", parentUid),
+            childId = data.optString("childId", childId),
+            childName = data.optString("childName", childName),
+            code = data.optString("code"),
+            expiresAtEpochMs = data.optLong("expiresAtEpochMs"),
+            status = data.optString("status", "ACTIVE")
+        )
     }
 
-    /**
-     * Revokes an active pairing code (Parent-only operation).
-     */
     suspend fun revokePairingCode(parentUid: String, codeId: String) {
-        val familyId = familyIdFor(parentUid)
-        familyDoc(familyId)
-            .collection("pairingCodes")
-            .document(codeId)
-            .update("status", "EXPIRED")
-            .await()
+        AnchorWorkerApi.post(
+            auth,
+            "pairing/revoke",
+            mapOf("familyId" to familyIdFor(parentUid), "codeId" to codeId)
+        )
     }
 
-    /**
-     * Redeems a parent-issued 6-digit pairing code for an authenticated Child device.
-     * Enforced by Firestore security rules (`isValidPairingRedemption` + `isValidChildPairingCodeConsumption`):
-     * - Verifies the code exists, is ACTIVE, and has not expired (`expiresAtEpochMs > now`).
-     * - Atomically updates the pairingCode to CONSUMED and creates `/families/{familyId}/pairedDevices/{childUid}`.
-     * - Updates the child device telemetry on `/families/{familyId}/children/{childId}`.
-     */
     suspend fun redeemPairingCode(
-        childUid: String,
-        targetFamilyIdOrUid: String,
         rawCode: String,
-        childIdHint: String = "child_leo",
         deviceName: String,
         deviceModel: String,
         osVersion: String
     ): PairingRedemptionResult {
-        val familyId = familyIdFor(targetFamilyIdOrUid)
-        val ownerUid = resolveOwnerUid(familyId, childUid)
-        val normalizedDigits = rawCode.filter { it.isDigit() }
-        val candidateCodeIds = listOf(
-            "pair_${childIdHint}_$normalizedDigits",
-            "pair_child_leo_$normalizedDigits",
-            "pair_leo_01_$normalizedDigits"
-        ).distinct()
+        val digits = rawCode.filter { it.isDigit() }
+        if (digits.length != 6) {
+            return PairingRedemptionResult(
+                verified = false,
+                errorMessage = "Enter the complete six-digit pairing code from Anchor Parent."
+            )
+        }
 
-        val path = "families/$familyId/pairingCodes"
         return try {
-            val famRef = familyDoc(familyId)
-            var matchedCode: PairingCode? = null
-
-            for (candidateId in candidateCodeIds) {
-                val snap = famRef.collection("pairingCodes").document(candidateId).get().await()
-                if (snap.exists()) {
-                    val obj = snap.toObject(PairingCode::class.java)
-                    if (obj != null) {
-                        matchedCode = obj.copy(codeId = snap.id)
-                        break
-                    }
-                }
-            }
-
-            if (matchedCode == null) {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "Invalid pairing code. Please check the 6-digit code in Anchor Parent."
-                )
-            }
-
-            val cleanStoredCode = matchedCode.code.filter { it.isDigit() }
-            if (cleanStoredCode != normalizedDigits && matchedCode.code != rawCode.trim()) {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "Pairing code mismatch."
-                )
-            }
-
-            if (matchedCode.status != "ACTIVE") {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "This pairing code has already been ${matchedCode.status.lowercase(Locale.US)}."
-                )
-            }
-
-            if (matchedCode.expiresAtEpochMs <= System.currentTimeMillis()) {
-                return PairingRedemptionResult(
-                    verified = false,
-                    errorMessage = "This pairing code has expired (10-minute limit). Generate a fresh code in Anchor Parent."
-                )
-            }
-
-            val codeRef = famRef.collection("pairingCodes").document(matchedCode.codeId)
-            val pairedDeviceRef = famRef.collection("pairedDevices").document(childUid)
-
-            // Step 1: Atomic batch consuming the code and creating pairedDevices membership
-            val batch = firestore.batch()
-            batch.update(
-                codeRef,
+            val data = AnchorWorkerApi.post(
+                auth,
+                "pairing/redeem",
                 mapOf(
-                    "status" to "CONSUMED",
-                    "redeemedByUid" to childUid
+                    "code" to digits,
+                    "deviceName" to deviceName,
+                    "deviceModel" to deviceModel,
+                    "osVersion" to osVersion
                 )
             )
-            val pairedRecord = PairedDeviceRecord(
-                deviceUid = childUid,
-                familyId = familyId,
-                ownerUid = matchedCode.ownerUid.ifBlank { ownerUid },
-                childId = matchedCode.childId,
-                codeId = matchedCode.codeId,
-                redeemedCode = matchedCode.code,
-                deviceName = deviceName,
-                deviceModel = deviceModel,
-                osVersion = osVersion,
-                status = "ACTIVE",
-                pairedAtEpochMs = System.currentTimeMillis()
-            )
-            batch.set(pairedDeviceRef, pairedRecord)
-            batch.commit().await()
-
-            // Step 2: Now that pairedDevices membership is committed, update child telemetry & post audit message
-            val childRef = famRef.collection("children").document(matchedCode.childId)
-            val existingChild = childRef.get().await().toObject(ChildProfile::class.java)
-            if (existingChild != null) {
-                childRef.set(
-                    existingChild.copy(
-                        deviceName = deviceName,
-                        deviceModel = deviceModel,
-                        osVersion = osVersion,
-                        syncStatus = "ENFORCED",
-                        lastSyncLabel = "Paired at ${nowTimeLabel()}",
-                        updatedAt = Timestamp.now()
-                    )
-                ).await()
-            }
-
-            sendFamilyMessage(
-                familyIdOrUid = familyId,
-                childId = matchedCode.childId,
-                senderName = matchedCode.childName.ifBlank { "Leo" },
-                senderRole = "SYSTEM",
-                text = "Device Paired: $deviceName ($osVersion) linked via verified one-time code.",
-                isSystemEvent = true
-            )
-
             PairingRedemptionResult(
-                verified = true,
-                familyId = familyId,
-                ownerUid = matchedCode.ownerUid.ifBlank { ownerUid },
-                childId = matchedCode.childId,
-                childName = matchedCode.childName.ifBlank { "Leo" },
-                codeId = matchedCode.codeId
+                verified = data.optBoolean("verified"),
+                familyId = data.optString("familyId"),
+                ownerUid = data.optString("ownerUid"),
+                childId = data.optString("childId"),
+                childName = data.optString("childName", "Child"),
+                codeId = data.optString("codeId"),
+                errorMessage = if (data.optBoolean("verified")) null
+                    else "The pairing service could not verify this code.",
+                serverResponded = true
             )
         } catch (e: Exception) {
-            FirestoreErrorHandler.handleFirestoreError(e, OperationType.WRITE, path)
             PairingRedemptionResult(
                 verified = false,
-                errorMessage = e.localizedMessage ?: "Pairing verification failed on server."
+                errorMessage = e.localizedMessage ?: "Pairing verification failed. Please try again."
             )
         }
     }
 
-    /**
-     * Backward-compatible wrapper returning Boolean for callers testing simple pairing claim.
-     */
+    suspend fun verifyPairingSession(
+        familyId: String,
+        childId: String
+    ): PairingRedemptionResult {
+        return try {
+            val data = AnchorWorkerApi.post(
+                auth,
+                "pairing/verify",
+                mapOf("familyId" to familyId, "childId" to childId)
+            )
+            val verified = data.optBoolean("verified")
+            PairingRedemptionResult(
+                verified = verified,
+                familyId = data.optString("familyId"),
+                ownerUid = data.optString("ownerUid"),
+                childId = data.optString("childId", childId),
+                childName = data.optString("childName", "Child"),
+                codeId = data.optString("codeId"),
+                errorMessage = if (verified) null else "This device is no longer paired to this family.",
+                serverResponded = true
+            )
+        } catch (e: Exception) {
+            PairingRedemptionResult(
+                verified = false,
+                errorMessage = e.localizedMessage ?: "Could not verify the saved pairing session."
+            )
+        }
+    }
+
+    fun observePairedDeviceMembership(
+        familyId: String,
+        childUid: String
+    ): Flow<Boolean> = callbackFlow {
+        val path = "families/$familyId/pairedDevices/$childUid"
+        val registration = firestore.document(path).addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                close(error)
+                return@addSnapshotListener
+            }
+            if (snapshot != null && !snapshot.metadata.isFromCache) {
+                val active = snapshot.exists() &&
+                    snapshot.getString("status") == "PAIRED" &&
+                    snapshot.getString("childUid") == childUid &&
+                    snapshot.getString("familyId") == familyId
+                trySend(active)
+            }
+        }
+        awaitClose { registration.remove() }
+    }
+
+    @Suppress("UNUSED_PARAMETER")
     suspend fun claimPairingCode(
         uid: String,
         code: String,
@@ -534,18 +408,12 @@ class AnchorRepository(
         deviceName: String,
         deviceModel: String,
         osVersion: String
-    ): Boolean {
-        val res = redeemPairingCode(
-            childUid = uid,
-            targetFamilyIdOrUid = uid,
-            rawCode = code,
-            childIdHint = childId,
-            deviceName = deviceName,
-            deviceModel = deviceModel,
-            osVersion = osVersion
-        )
-        return res.verified
-    }
+    ): Boolean = redeemPairingCode(
+        rawCode = code,
+        deviceName = deviceName,
+        deviceModel = deviceModel,
+        osVersion = osVersion
+    ).verified
 
     // ========================================================================
     // Child App Telemetry & Permitted Mutations
@@ -663,7 +531,20 @@ class AnchorRepository(
             createdAt = Timestamp.now()
         )
         try {
-            familyDoc(familyId).collection("alerts").document(alertId).set(alert).await()
+            val response = AnchorWorkerApi.post(
+                auth,
+                "sos",
+                mapOf(
+                    "familyId" to familyId,
+                    "childId" to childId,
+                    "childName" to childName,
+                    "locationLabel" to locationLabel,
+                    "batteryLevel" to batteryLevel,
+                    "isPracticeDrill" to isPracticeDrill,
+                    "alertId" to alertId
+                )
+            )
+            val persistedAlert = alert.copy(alertId = response.optString("alertId", alertId))
             sendFamilyMessage(
                 familyIdOrUid = familyId,
                 childId = childId,
@@ -676,7 +557,7 @@ class AnchorRepository(
                 },
                 isSystemEvent = true
             )
-            return alert
+            return persistedAlert
         } catch (e: Exception) {
             FirestoreErrorHandler.handleFirestoreError(e, OperationType.CREATE, path)
             throw e
@@ -780,7 +661,7 @@ class AnchorRepository(
                 sendFamilyMessage(
                     familyIdOrUid = familyId,
                     childId = task.childId,
-                    senderName = "Leo",
+                    senderName = auth.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Child",
                     senderRole = "CHILD",
                     text = "Marked task ready for review: \"${task.title}\" (${task.rewardSummary})",
                     isSystemEvent = true
@@ -878,8 +759,8 @@ class AnchorRepository(
                     ?: com.google.firebase.FirebaseApp.initializeApp(
                         context,
                         com.google.firebase.FirebaseOptions.Builder()
-                            .setProjectId("gen-lang-client-0963224775")
-                            .setApplicationId("com.anchor.child")
+                            .setProjectId("demo-anchor-local")
+                            .setApplicationId("1:000000000000:android:0000000000000000")
                             .setApiKey("AIzaSyDummyKeyForLocalRobolectricTest")
                             .build()
                     )

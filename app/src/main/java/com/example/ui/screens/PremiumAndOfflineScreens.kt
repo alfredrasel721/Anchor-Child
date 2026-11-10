@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.model.ChildScreenId
 import com.example.model.LiveSessionModality
+import com.example.model.LiveSessionStatus
 import com.example.service.DeviceSystemMonitor
 import com.example.ui.components.SemanticStatusBadge
 import com.example.ui.theme.StatusEnforcedBg
@@ -113,7 +114,7 @@ fun C12PremiumFiltersDisclosureScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "C-12 • Safety & Filter Disclosures",
+                                text = "• Safety & Filter Disclosures",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -199,10 +200,10 @@ fun C12PremiumFiltersDisclosureScreen(
                         )
                     }
                     Text(
-                        text = "• Discord DMs: ${if (config.discordDmWhitelistOnly) "Friends Whitelist Only" else "Standard"}\n" +
-                            "• Roblox Chat: ${if (config.robloxChatFiltered) "Filtered Safe Chat" else "Standard"}\n" +
-                            "• WhatsApp Unknown Senders: ${if (config.whatsappUnknownBlocked) "Blocked" else "Allowed"}\n" +
-                            "• YouTube Restricted Mode: ${if (config.youtubeRestrictedMode) "Enforced" else "Off"}",
+                        text = "• Discord DMs: ${if (config.discordDmWhitelistOnly)"Friends Whitelist Only"else"Standard"}\n" +
+                            "• Roblox Chat: ${if (config.robloxChatFiltered)"Filtered Safe Chat"else"Standard"}\n" +
+                            "• WhatsApp Unknown Senders: ${if (config.whatsappUnknownBlocked)"Blocked"else"Allowed"}\n" +
+                            "• YouTube Restricted Mode: ${if (config.youtubeRestrictedMode)"Enforced"else"Off"}",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -283,7 +284,7 @@ fun C12PremiumFiltersDisclosureScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Audit Code: ${config.liveSessionAuditCode} • Every live check-in requires your explicit consent (C-13) and shows an instant STOP button (C-14).",
+                        text = "Audit Code: ${config.liveSessionAuditCode} • Every live check-in requires your explicit consent and shows an instant STOP button .",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -392,7 +393,7 @@ fun C13IncomingLiveConsentScreen(
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "C-13 • EXPLICIT CHILD AUTHORIZATION REQUIRED",
+                            text = "• EXPLICIT CHILD AUTHORIZATION REQUIRED",
                             style = MaterialTheme.typography.labelSmall,
                             color = StatusPendingAmber,
                             fontWeight = FontWeight.ExtraBold,
@@ -558,6 +559,7 @@ fun C14ActiveLiveSessionScreen(
     onReturnToPrivacy: () -> Unit
 ) {
     val session = uiState.liveSessionState
+    val streaming = session.status == LiveSessionStatus.ACTIVE_STREAMING
     val mins = session.remainingSeconds / 60
     val secs = session.remainingSeconds % 60
     val timerFormatted = String.format(Locale.US, "%02d:%02d", mins, secs)
@@ -596,7 +598,7 @@ fun C14ActiveLiveSessionScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "C-14 • LIVE ${session.modality.label.uppercase()} ACTIVE",
+                                text = if (streaming) "• LIVE ${session.modality.label.uppercase()} ACTIVE" else "• CONSENT RECORDED • NOT STREAMING",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StatusFailedCrimson,
                                 fontWeight = FontWeight.ExtraBold
@@ -612,7 +614,7 @@ fun C14ActiveLiveSessionScreen(
                     )
 
                     Text(
-                        text = "Auto-Cutoff Countdown • Connected with ${session.initiatorName}",
+                        text = if (streaming) "Auto-Cutoff Countdown • Connected with ${session.initiatorName}" else "No screen, camera, or microphone media is being captured or transmitted.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -628,15 +630,22 @@ fun C14ActiveLiveSessionScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "Active Hardware Stream Details",
+                                text = if (streaming) "Active Hardware Stream Details" else "Awaiting Secure Media Connection",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "• Modality: ${session.modality.label} (${session.modality.badgeText})\n" +
-                                    "• Started At: ${session.startedAtLabel}\n" +
-                                    "• Microphone Status: ${if (session.audioMutedByChild) "Muted by You" else "Active"}\n" +
-                                    "• Bilateral Audit ID: ${session.sessionId}",
+                                text = if (streaming) {
+                                    "• Modality: ${session.modality.label} (${session.modality.badgeText})\n" +
+                                        "• Started At: ${session.startedAtLabel}\n" +
+                                        "• Microphone Status: ${if (session.audioMutedByChild)"Muted by You"else"Active"}\n" +
+                                        "• Bilateral Audit ID: ${session.sessionId}"
+                                } else {
+                                    "• Consent recorded for ${session.modality.label}.\n" +
+                                        "• No verified WebRTC media connection exists.\n" +
+                                        "• Your device is not sharing screen, camera, or microphone content.\n" +
+                                        "• Audit ID: ${session.sessionId}"
+                                },
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -647,6 +656,7 @@ fun C14ActiveLiveSessionScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("c14_toggle_mute_button"),
+                        enabled = streaming,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
@@ -655,7 +665,7 @@ fun C14ActiveLiveSessionScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (session.audioMutedByChild) "Microphone Muted (Tap to Unmute)" else "Mute Microphone Immediately"
+                            if (!streaming) "Microphone control available only during a live stream" else if (session.audioMutedByChild) "Microphone Muted (Tap to Unmute)" else "Mute Microphone Immediately"
                         )
                     }
 
@@ -689,7 +699,7 @@ fun C14ActiveLiveSessionScreen(
                             .testTag("c14_back_privacy_button"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Return to Privacy Dashboard (C-11)")
+                        Text("Return to Privacy Dashboard")
                     }
                 }
             }
@@ -738,7 +748,7 @@ fun C15OfflineSyncHelpScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "C-15 • Offline Sync & Resilience",
+                                    text = "• Offline Sync & Resilience",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -899,7 +909,7 @@ fun C15OfflineSyncHelpScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = StatusFailedCrimson),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Open Emergency SOS & Carrier SMS (C-08)")
+                        Text("Open Emergency SOS & Carrier SMS")
                     }
                 }
             }
