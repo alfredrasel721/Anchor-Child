@@ -81,7 +81,6 @@ import com.example.viewmodel.AnchorChildUiState
 fun C01WelcomePairingScreen(
     uiState: AnchorChildUiState,
     onUpdatePairingCode: (String) -> Unit,
-    onSelectChild: (String) -> Unit,
     onSubmitPairing: () -> Unit,
     onSignInWithGoogle: () -> Unit,
     onNavigateToPermissions: () -> Unit
@@ -234,42 +233,11 @@ fun C01WelcomePairingScreen(
                         }
                     }
 
-                    // Child profile selector pills
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        uiState.children.forEach { child ->
-                            val selected = child.childId == uiState.selectedChildId
-                            Surface(
-                                color = if (selected) StitchPrimaryFixed else StitchSurfaceContainerLow,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        width = if (selected) 2.dp else 1.dp,
-                                        color = if (selected) StitchPrimary else StitchOutlineVariant,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    .clickable { onSelectChild(child.childId) }
-                                    .testTag("select_child_${child.childId}")
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "${child.name} (Age ${child.age})",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = StitchPrimary
-                                    )
-                                    Text(
-                                        text = child.deviceName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    Text(
+                        text = "Anchor Parent will select the correct child profile when this device's one-time code is verified.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     // 6-Digit Visual Code Boxes (Stitch C-01 Design)
                     val padded = uiState.pairingCodeInput.padEnd(6, '•')
@@ -303,7 +271,7 @@ fun C01WelcomePairingScreen(
                     OutlinedTextField(
                         value = uiState.pairingCodeInput,
                         onValueChange = onUpdatePairingCode,
-                        label = { Text("6-Digit Parent Pairing Code (e.g. 482915)") },
+                        label = { Text("6-Digit Parent Pairing Code") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier

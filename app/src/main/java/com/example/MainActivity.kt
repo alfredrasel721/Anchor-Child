@@ -154,10 +154,12 @@ fun AnchorChildAppRoot(
                         viewModel.navigateTo(ChildScreenId.C14_ACTIVE_LIVE_SESSION)
                     }
                 )
-                AnchorChildQuickScreenStrip(
-                    currentScreen = uiState.currentScreen,
-                    onSelectScreen = { viewModel.navigateTo(it) }
-                )
+                if (BuildConfig.DEBUG) {
+                    AnchorChildQuickScreenStrip(
+                        currentScreen = uiState.currentScreen,
+                        onSelectScreen = { viewModel.navigateTo(it) }
+                    )
+                }
                 StatusFeedbackBanner(
                     message = uiState.statusBannerMessage,
                     onDismiss = { viewModel.clearStatusBanner() }
@@ -183,7 +185,6 @@ fun AnchorChildAppRoot(
                 ChildScreenId.C01_WELCOME_PAIRING -> C01WelcomePairingScreen(
                     uiState = uiState,
                     onUpdatePairingCode = viewModel::updatePairingCodeInput,
-                    onSelectChild = viewModel::selectChildProfile,
                     onSubmitPairing = viewModel::submitPairingCode,
                     onSignInWithGoogle = { viewModel.signInWithGoogle(context) },
                     onNavigateToPermissions = {
@@ -309,7 +310,7 @@ fun AnchorChildAppRoot(
         }
     }
 
-    if (showScreenAtlas) {
+    if (BuildConfig.DEBUG && showScreenAtlas) {
         StitchScreenAtlasModal(
             currentScreen = uiState.currentScreen,
             onSelectScreen = viewModel::navigateTo,

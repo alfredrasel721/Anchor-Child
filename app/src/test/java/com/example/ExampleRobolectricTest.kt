@@ -17,5 +17,10 @@ class ExampleRobolectricTest {
         assertEquals("", state.pairedFamilyId)
         assertEquals(ChildScreenId.C01_WELCOME_PAIRING, state.currentScreen)
         assertTrue(state.pairingCodes.isEmpty())
+        assertTrue(state.children.isEmpty())
+        assertTrue(state.appRules.isEmpty())
+        assertEquals("FREE", state.household.subscriptionTier)
+        assertFalse(state.household.subscriptionActive)
+        assertEquals("This device", state.activeChild.name)
     }
 }

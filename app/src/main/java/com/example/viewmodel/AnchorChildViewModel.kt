@@ -12,7 +12,6 @@ import com.example.data.local.CachedScheduleEntity
 import com.example.data.local.OfflineSyncQueueEntity
 import com.example.data.local.PairingSessionStore
 import com.example.data.remote.AnchorRepository
-import com.example.model.AnchorSeedData
 import com.example.model.AppRule
 import com.example.model.ChildBottomTab
 import com.example.model.ChildProfile
@@ -56,19 +55,19 @@ data class AnchorChildUiState(
     val isPaired: Boolean = false,
     val pairedFamilyId: String = "",
     val pairingCodeInput: String = "",
-    val selectedChildId: String = "child_leo",
-    val household: FamilyHousehold = AnchorSeedData.defaultHousehold("preview"),
-    val children: List<ChildProfile> = AnchorSeedData.defaultChildren("preview"),
+    val selectedChildId: String = "",
+    val household: FamilyHousehold = FamilyHousehold(familyName = "My Family", subscriptionTier = "FREE", subscriptionActive = false),
+    val children: List<ChildProfile> = emptyList(),
     val pairingCodes: List<PairingCode> = emptyList(),
-    val appRules: List<AppRule> = AnchorSeedData.defaultAppRules("preview"),
-    val schedules: List<ScheduleRoutine> = AnchorSeedData.defaultSchedules("preview"),
-    val geofences: List<SafeGeofence> = AnchorSeedData.defaultGeofences("preview"),
-    val alerts: List<SafetyAlert> = AnchorSeedData.defaultAlerts("preview"),
-    val requests: List<ChildRequest> = AnchorSeedData.defaultRequests("preview"),
-    val messages: List<FamilyMessage> = AnchorSeedData.defaultMessages("preview"),
-    val tasks: List<FamilyTask> = AnchorSeedData.defaultTasks("preview"),
-    val guardians: List<GuardianContact> = AnchorSeedData.defaultGuardians("preview"),
-    val premiumConfig: PremiumFilterConfig = AnchorSeedData.defaultPremiumConfig("preview"),
+    val appRules: List<AppRule> = emptyList(),
+    val schedules: List<ScheduleRoutine> = emptyList(),
+    val geofences: List<SafeGeofence> = emptyList(),
+    val alerts: List<SafetyAlert> = emptyList(),
+    val requests: List<ChildRequest> = emptyList(),
+    val messages: List<FamilyMessage> = emptyList(),
+    val tasks: List<FamilyTask> = emptyList(),
+    val guardians: List<GuardianContact> = emptyList(),
+    val premiumConfig: PremiumFilterConfig = PremiumFilterConfig(),
     val permissionSnapshot: RealPermissionSnapshot = RealPermissionSnapshot(),
     val realUsageApps: List<RealUsageAppItem> = emptyList(),
     val offlineQueue: List<OfflineSyncQueueEntity> = emptyList(),
@@ -79,13 +78,40 @@ data class AnchorChildUiState(
     val sosDispatchedActive: Boolean = false,
     val liveSessionState: LiveSessionState = LiveSessionState(),
     val statusBannerMessage: String? = null,
-    val wellbeingTrustPoints: Int = 92,
-    val bedtimeStreakDays: Int = 5
+    val wellbeingTrustPoints: Int = 0,
+    val bedtimeStreakDays: Int = 0
 ) {
     val activeChild: ChildProfile
         get() = children.firstOrNull { it.childId == selectedChildId }
             ?: children.firstOrNull()
-            ?: AnchorSeedData.defaultChildren("preview").first()
+            ?: ChildProfile(
+                childId = "",
+                familyId = "",
+                ownerUid = "",
+                name = "This device",
+                age = 0,
+                gradeLabel = "",
+                avatarInitials = "",
+                deviceName = listOf(Build.MANUFACTURER, Build.MODEL).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Android device" },
+                deviceModel = Build.MODEL.ifBlank { "Android device" },
+                osVersion = Build.VERSION.RELEASE.orEmpty(),
+                batteryLevel = 0,
+                chargingStatus = "Unknown",
+                networkType = "Unknown",
+                networkName = "",
+                storageFreeGb = 0.0,
+                syncStatus = "PENDING",
+                lastSyncLabel = "Awaiting secure pairing",
+                usedMinutesToday = 0,
+                dailyAllowanceMinutes = 0,
+                currentMode = "Not configured",
+                locationLabel = "Location unavailable",
+                latitude = 0.0,
+                longitude = 0.0,
+                knoxVerified = false,
+                accessibilityEnabled = false,
+                deviceAdminEnabled = false
+            )
 
     val isEffectiveOnline: Boolean
         get() = isNetworkOnline && !isOfflineSimulated
@@ -619,10 +645,6 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
     fun updatePairingCodeInput(code: String) {
         val filtered = code.filter { it.isDigit() }.take(6)
         _uiState.value = _uiState.value.copy(pairingCodeInput = filtered)
-    }
-
-    fun selectChildProfile(childId: String) {
-        _uiState.value = _uiState.value.copy(selectedChildId = childId)
     }
 
     fun submitPairingCode() {

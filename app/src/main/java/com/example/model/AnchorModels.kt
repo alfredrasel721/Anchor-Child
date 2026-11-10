@@ -129,10 +129,10 @@ data class UserProfile(
 
 data class FamilyHousehold(
     val familyId: String = "",
-    val familyName: String = "Jenkins Household",
+    val familyName: String = "My Family",
     val ownerUid: String = "",
-    val subscriptionTier: String = "PREMIUM_ANNUAL", // FREE | PREMIUM_ANNUAL | PREMIUM_MONTHLY
-    val subscriptionActive: Boolean = true,
+    val subscriptionTier: String = "FREE", // FREE | PREMIUM_ANNUAL | PREMIUM_MONTHLY
+    val subscriptionActive: Boolean = false,
     val autoApproveLearningApps: Boolean = true,
     val fairPlayNoticeMinutes: Int = 5,
     val createdAt: Timestamp? = null,
@@ -140,29 +140,29 @@ data class FamilyHousehold(
 )
 
 data class ChildProfile(
-    val childId: String = "child_leo",
+    val childId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val name: String = "Leo",
-    val age: Int = 11,
-    val gradeLabel: String = "6th Grade",
-    val avatarInitials: String = "LJ",
-    val deviceName: String = "Galaxy A54 5G",
-    val deviceModel: String = "Samsung SM-A546U",
-    val osVersion: String = "Android 14",
-    val batteryLevel: Int = 84,
-    val chargingStatus: String = "Discharging",
-    val networkType: String = "Wi-Fi",
-    val networkName: String = "Jenkins_Home_5G",
-    val storageFreeGb: Double = 42.8,
-    val syncStatus: String = "ENFORCED", // ENFORCED | PENDING | FAILED | UNSUPPORTED
-    val lastSyncLabel: String = "Synced 12s ago",
-    val usedMinutesToday: Int = 80,
-    val dailyAllowanceMinutes: Int = 150,
-    val currentMode: String = "Free Play Window",
-    val locationLabel: String = "Oakridge Middle School",
-    val latitude: Double = 37.7749,
-    val longitude: Double = -122.4194,
+    val name: String = "",
+    val age: Int = 0,
+    val gradeLabel: String = "",
+    val avatarInitials: String = "",
+    val deviceName: String = "",
+    val deviceModel: String = "",
+    val osVersion: String = "",
+    val batteryLevel: Int = 0,
+    val chargingStatus: String = "Unknown",
+    val networkType: String = "Unknown",
+    val networkName: String = "",
+    val storageFreeGb: Double = 0.0,
+    val syncStatus: String = "PENDING", // ENFORCED | PENDING | FAILED | UNSUPPORTED
+    val lastSyncLabel: String = "Not synced",
+    val usedMinutesToday: Int = 0,
+    val dailyAllowanceMinutes: Int = 0,
+    val currentMode: String = "Not configured",
+    val locationLabel: String = "Location unavailable",
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
     val knoxVerified: Boolean = false,
     val accessibilityEnabled: Boolean = true,
     val deviceAdminEnabled: Boolean = true,
@@ -175,10 +175,10 @@ data class PairingCode(
     val familyId: String = "",
     val ownerUid: String = "",
     val childId: String = "child_leo",
-    val childName: String = "Leo",
+    val childName: String = "",
     val code: String = "",
     val expiresAtEpochMs: Long = 0L,
-    val status: String = "ACTIVE", // ACTIVE | CONSUMED | EXPIRED
+    val status: String = "NONE", // ACTIVE | CONSUMED | EXPIRED
     val redeemedByUid: String = "",
     val createdAt: Timestamp? = null
 )
