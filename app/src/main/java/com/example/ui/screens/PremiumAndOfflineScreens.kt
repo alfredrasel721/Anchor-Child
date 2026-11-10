@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.model.ChildScreenId
 import com.example.model.LiveSessionModality
+import com.example.model.LiveSessionStatus
 import com.example.service.DeviceSystemMonitor
 import com.example.ui.components.SemanticStatusBadge
 import com.example.ui.theme.StatusEnforcedBg
@@ -558,6 +559,7 @@ fun C14ActiveLiveSessionScreen(
     onReturnToPrivacy: () -> Unit
 ) {
     val session = uiState.liveSessionState
+    val streaming = session.status == LiveSessionStatus.ACTIVE_STREAMING
     val mins = session.remainingSeconds / 60
     val secs = session.remainingSeconds % 60
     val timerFormatted = String.format(Locale.US, "%02d:%02d", mins, secs)
@@ -596,7 +598,7 @@ fun C14ActiveLiveSessionScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "C-14 • LIVE ${session.modality.label.uppercase()} ACTIVE",
+                                text = if (streaming) "C-14 • LIVE ${session.modality.label.uppercase()} ACTIVE" else "C-14 • CONSENT RECORDED • NOT STREAMING",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StatusFailedCrimson,
                                 fontWeight = FontWeight.ExtraBold
@@ -612,7 +614,7 @@ fun C14ActiveLiveSessionScreen(
                     )
 
                     Text(
-                        text = "Auto-Cutoff Countdown • Connected with ${session.initiatorName}",
+                        text = if (streaming) "Auto-Cutoff Countdown • Connected with ${session.initiatorName}" else "No screen, camera, or microphone media is being captured or transmitted.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -628,15 +630,22 @@ fun C14ActiveLiveSessionScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "Active Hardware Stream Details",
+                                text = if (streaming) "Active Hardware Stream Details" else "Awaiting Secure Media Connection",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "• Modality: ${session.modality.label} (${session.modality.badgeText})\n" +
-                                    "• Started At: ${session.startedAtLabel}\n" +
-                                    "• Microphone Status: ${if (session.audioMutedByChild) "Muted by You" else "Active"}\n" +
-                                    "• Bilateral Audit ID: ${session.sessionId}",
+                                text = if (streaming) {
+                                    "• Modality: ${session.modality.label} (${session.modality.badgeText})\n" +
+                                        "• Started At: ${session.startedAtLabel}\n" +
+                                        "• Microphone Status: ${if (session.audioMutedByChild) "Muted by You" else "Active"}\n" +
+                                        "• Bilateral Audit ID: ${session.sessionId}"
+                                } else {
+                                    "• Consent recorded for ${session.modality.label}.\n" +
+                                        "• No verified WebRTC media connection exists.\n" +
+                                        "• Your device is not sharing screen, camera, or microphone content.\n" +
+                                        "• Audit ID: ${session.sessionId}"
+                                },
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -647,6 +656,7 @@ fun C14ActiveLiveSessionScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("c14_toggle_mute_button"),
+                        enabled = streaming,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
@@ -655,7 +665,7 @@ fun C14ActiveLiveSessionScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (session.audioMutedByChild) "Microphone Muted (Tap to Unmute)" else "Mute Microphone Immediately"
+                            if (!streaming) "Microphone control available only during a live stream" else if (session.audioMutedByChild) "Microphone Muted (Tap to Unmute)" else "Mute Microphone Immediately"
                         )
                     }
 
