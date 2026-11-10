@@ -164,8 +164,8 @@ data class ChildProfile(
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
     val knoxVerified: Boolean = false,
-    val accessibilityEnabled: Boolean = true,
-    val deviceAdminEnabled: Boolean = true,
+    val accessibilityEnabled: Boolean = false,
+    val deviceAdminEnabled: Boolean = false,
     val policyPausedUntil: String = "",
     val updatedAt: Timestamp? = null
 )
@@ -174,7 +174,7 @@ data class PairingCode(
     val codeId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val childName: String = "",
     val code: String = "",
     val expiresAtEpochMs: Long = 0L,
@@ -187,13 +187,13 @@ data class PairedDeviceRecord(
     val deviceUid: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val codeId: String = "",
     val redeemedCode: String = "",
     val deviceName: String = "",
     val deviceModel: String = "",
     val osVersion: String = "",
-    val status: String = "ACTIVE",
+    val status: String = "PENDING",
     val pairedAtEpochMs: Long = 0L
 )
 
@@ -201,13 +201,13 @@ data class AppRule(
     val ruleId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val packageName: String = "",
     val appName: String = "",
-    val category: String = "Games",
-    val dailyLimitMinutes: Int = 60,
+    val category: String = "Uncategorized",
+    val dailyLimitMinutes: Int = 0,
     val usedMinutesToday: Int = 0,
-    val status: String = "ENFORCED", // ENFORCED | PENDING | SCHEDULE_ONLY | WHITELISTED | BLOCKED
+    val status: String = "PENDING", // ENFORCED | PENDING | SCHEDULE_ONLY | WHITELISTED | BLOCKED
     val blocked: Boolean = false,
     val whitelisted: Boolean = false,
     val scheduleOnly: Boolean = false,
@@ -218,17 +218,17 @@ data class ScheduleRoutine(
     val scheduleId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val title: String = "",
     val windowDescription: String = "",
-    val daysSummary: String = "Mon - Fri",
-    val modeCategory: String = "SCHOOL_FOCUS",
-    val iconType: String = "SCHOOL",
-    val allowedAppsSummary: String = "Phone, Messages, Calculator, Khan Academy",
-    val ruleSummary: String = "Phone, Messages, Calculator, Khan Academy",
-    val status: String = "ENFORCED", // ENFORCED | PENDING | PAUSED
-    val syncStatus: String = "ENFORCED",
-    val enabled: Boolean = true,
+    val daysSummary: String = "",
+    val modeCategory: String = "UNCONFIGURED",
+    val iconType: String = "DEFAULT",
+    val allowedAppsSummary: String = "",
+    val ruleSummary: String = "",
+    val status: String = "PENDING", // ENFORCED | PENDING | PAUSED
+    val syncStatus: String = "PENDING",
+    val enabled: Boolean = false,
     val updatedAt: Timestamp? = null
 )
 
@@ -236,15 +236,15 @@ data class SafeGeofence(
     val geofenceId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val name: String = "",
-    val radiusMeters: Int = 150,
-    val triggerSummary: String = "Arrive & Depart",
-    val scheduleSummary: String = "24/7 Active",
+    val radiusMeters: Int = 0,
+    val triggerSummary: String = "",
+    val scheduleSummary: String = "",
     val activeInside: Boolean = false,
-    val alertsEnabled: Boolean = true,
-    val latitude: Double = 37.7749,
-    val longitude: Double = -122.4194,
+    val alertsEnabled: Boolean = false,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
     val updatedAt: Timestamp? = null
 )
 
@@ -252,13 +252,13 @@ data class SafetyAlert(
     val alertId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
-    val childName: String = "Leo",
+    val childId: String = "",
+    val childName: String = "",
     val title: String = "",
     val description: String = "",
     val category: String = "SYSTEM", // SOS | GEOFENCE | DEVICE_HEALTH | SYSTEM
     val severity: String = "INFO", // INFO | WARNING | CRITICAL
-    val timestampLabel: String = "Just now",
+    val timestampLabel: String = "",
     val acknowledged: Boolean = false,
     val createdAt: Timestamp? = null
 )
@@ -267,14 +267,14 @@ data class ChildRequest(
     val requestId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
-    val childName: String = "Leo",
+    val childId: String = "",
+    val childName: String = "",
     val requestType: String = "EXTRA_TIME", // EXTRA_TIME | NEW_APP
     val targetName: String = "",
-    val targetCategory: String = "Games",
-    val requestedBonusMinutes: Int = 15,
+    val targetCategory: String = "",
+    val requestedBonusMinutes: Int = 0,
     val childNote: String = "",
-    val usedTodaySummary: String = "45m / 45m limit",
+    val usedTodaySummary: String = "",
     val status: String = "PENDING", // PENDING | APPROVED | DECLINED
     val decisionSummary: String = "",
     val decidedBy: String = "",
@@ -286,9 +286,9 @@ data class FamilyMessage(
     val messageId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val senderName: String = "",
-    val senderRole: String = "CHILD", // PARENT | CHILD | SYSTEM
+    val senderRole: String = "SYSTEM", // PARENT | CHILD | SYSTEM
     val text: String = "",
     @get:PropertyName("isSystemEvent")
     @set:PropertyName("isSystemEvent")
@@ -301,11 +301,11 @@ data class FamilyTask(
     val taskId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
+    val childId: String = "",
     val title: String = "",
-    val rewardSummary: String = "+20m Bonus Screen Time",
-    val dueSummary: String = "Today, 6:00 PM",
-    val status: String = "IN_PROGRESS", // IN_PROGRESS | READY_FOR_REVIEW | COMPLETED
+    val rewardSummary: String = "",
+    val dueSummary: String = "",
+    val status: String = "PENDING", // IN_PROGRESS | READY_FOR_REVIEW | COMPLETED
     val completedByChild: Boolean = false,
     val approvedByParent: Boolean = false,
     val updatedAt: Timestamp? = null
@@ -316,15 +316,15 @@ data class GuardianContact(
     val familyId: String = "",
     val ownerUid: String = "",
     val name: String = "",
-    val relationRole: String = "Primary Guardian",
+    val relationRole: String = "",
     val emailOrPhone: String = "",
     @get:PropertyName("isPrimaryGuardian")
     @set:PropertyName("isPrimaryGuardian")
-    var isPrimaryGuardian: Boolean = true,
-    val permissionsSummary: String = "Full Policy & Emergency Access",
-    val receiveGeofenceAlerts: Boolean = true,
-    val receiveSosSms: Boolean = true,
-    val status: String = "VERIFIED",
+    var isPrimaryGuardian: Boolean = false,
+    val permissionsSummary: String = "",
+    val receiveGeofenceAlerts: Boolean = false,
+    val receiveSosSms: Boolean = false,
+    val status: String = "PENDING",
     val updatedAt: Timestamp? = null
 )
 
@@ -332,22 +332,22 @@ data class PremiumFilterConfig(
     val configId: String = "",
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
-    val webFilterProfile: String = "BALANCED_GUARDIAN",
+    val childId: String = "",
+    val webFilterProfile: String = "",
     val blockedCategories: List<String> = emptyList(),
     val whitelistedDomains: List<String> = emptyList(),
     val blacklistedDomains: List<String> = emptyList(),
-    val socialShieldProfile: String = "SUPERVISED",
-    val discordDmWhitelistOnly: Boolean = true,
-    val robloxChatFiltered: Boolean = true,
-    val whatsappUnknownBlocked: Boolean = true,
-    val youtubeRestrictedMode: Boolean = true,
-    val notificationFilterEnabled: Boolean = true,
-    val notificationProtocol: String = "BATCHING",
-    val batchMuteSocialDuringStudy: Boolean = true,
-    val blockGamingStreakPrompts: Boolean = true,
-    val allowLearningNotifications: Boolean = true,
-    val liveSessionAuditCode: String = "#LIV-84920",
+    val socialShieldProfile: String = "",
+    val discordDmWhitelistOnly: Boolean = false,
+    val robloxChatFiltered: Boolean = false,
+    val whatsappUnknownBlocked: Boolean = false,
+    val youtubeRestrictedMode: Boolean = false,
+    val notificationFilterEnabled: Boolean = false,
+    val notificationProtocol: String = "",
+    val batchMuteSocialDuringStudy: Boolean = false,
+    val blockGamingStreakPrompts: Boolean = false,
+    val allowLearningNotifications: Boolean = false,
+    val liveSessionAuditCode: String = "",
     val updatedAt: Timestamp? = null
 )
 
@@ -362,13 +362,13 @@ enum class LiveSessionModality(val label: String, val badgeText: String) {
 }
 
 data class LiveSessionState(
-    val sessionId: String = "LIVE-9482-B",
-    val initiatorName: String = "Mom (Sarah Jenkins)",
+    val sessionId: String = "",
+    val initiatorName: String = "Parent",
     val modality: LiveSessionModality = LiveSessionModality.SCREEN_SHARE,
-    val reasonNote: String = "Helping you configure your science project browser settings",
+    val reasonNote: String = "",
     val status: LiveSessionStatus = LiveSessionStatus.IDLE,
-    val remainingSeconds: Int = 600,
-    val startedAtLabel: String = "Just now",
+    val remainingSeconds: Int = 0,
+    val startedAtLabel: String = "",
     val audioMutedByChild: Boolean = false
 )
 

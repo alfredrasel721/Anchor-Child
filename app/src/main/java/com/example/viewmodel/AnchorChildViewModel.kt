@@ -157,7 +157,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                     _uiState.value = _uiState.value.copy(
                         isPaired = false,
                         pairedFamilyId = "",
-                        selectedChildId = "child_leo",
+                        selectedChildId = "",
                         currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                         screenHistory = emptyList(),
                     )
@@ -191,7 +191,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.value = _uiState.value.copy(
                 isPaired = false,
                 pairedFamilyId = "",
-                selectedChildId = "child_leo",
+                selectedChildId = "",
                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                         screenHistory = emptyList(),
                 statusBannerMessage = verification.errorMessage
@@ -278,7 +278,7 @@ class AnchorChildViewModel(application: Application) : AndroidViewModel(applicat
                             _uiState.value = _uiState.value.copy(
                                 isPaired = false,
                                 pairedFamilyId = "",
-                                selectedChildId = "child_leo",
+                                selectedChildId = "",
                                 currentScreen = ChildScreenId.C01_WELCOME_PAIRING,
                         screenHistory = emptyList(),
                                 statusBannerMessage = "Anchor Parent unpaired this device. Enter a new one-time code to reconnect."

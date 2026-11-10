@@ -33,8 +33,8 @@ data class PairingRedemptionResult(
     val verified: Boolean,
     val familyId: String = "",
     val ownerUid: String = "",
-    val childId: String = "child_leo",
-    val childName: String = "Leo",
+    val childId: String = "",
+    val childName: String = "",
     val codeId: String = "",
     val errorMessage: String? = null,
     val serverResponded: Boolean = false
@@ -335,7 +335,7 @@ class AnchorRepository(
                 verified = data.optBoolean("verified"),
                 familyId = data.optString("familyId"),
                 ownerUid = data.optString("ownerUid"),
-                childId = data.optString("childId", "child_leo"),
+                childId = data.optString("childId"),
                 childName = data.optString("childName", "Child"),
                 codeId = data.optString("codeId"),
                 errorMessage = if (data.optBoolean("verified")) null
@@ -661,7 +661,7 @@ class AnchorRepository(
                 sendFamilyMessage(
                     familyIdOrUid = familyId,
                     childId = task.childId,
-                    senderName = "Leo",
+                    senderName = auth.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Child",
                     senderRole = "CHILD",
                     text = "Marked task ready for review: \"${task.title}\" (${task.rewardSummary})",
                     isSystemEvent = true
