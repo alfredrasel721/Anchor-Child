@@ -140,34 +140,34 @@ class DeviceSystemMonitor(private val context: Context) {
             val statusIntent = context.registerReceiver(null, filter)
             val level = statusIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
             val scale = statusIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-            val pct = if (level >= 0 && scale > 0) (level * 100) / scale else 84
+            val pct = if (level >= 0 && scale > 0) (level * 100) / scale else 0
 
             val status = statusIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
             val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                 status == BatteryManager.BATTERY_STATUS_FULL
             val label = if (isCharging) "Charging" else "Discharging"
-            pct.coerceIn(1, 100) to label
+            pct.coerceIn(0, 100) to (if (scale > 0) label else "Unknown")
         } catch (_: Exception) {
-            84 to "Discharging"
+            0 to "Unknown"
         }
     }
 
     fun isNetworkOnline(): Boolean {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                ?: return true
+                ?: return false
             val network = cm.activeNetwork ?: return false
             val caps = cm.getNetworkCapabilities(network) ?: return false
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (_: Exception) {
-            true
+            false
         }
     }
 
     fun readNetworkTelemetry(): Pair<String, String> {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                ?: return "Wi-Fi" to "Miller_Home_5G"
+                ?: return "Unknown" to "Unavailable"
             val network = cm.activeNetwork ?: return "Offline" to "No Active Network"
             val caps = cm.getNetworkCapabilities(network) ?: return "Offline" to "No Signal"
             when {
@@ -176,7 +176,7 @@ class DeviceSystemMonitor(private val context: Context) {
                 else -> "Online" to "Active Network"
             }
         } catch (_: Exception) {
-            "Wi-Fi" to "Miller_Home_5G"
+            "Unknown" to "Unavailable"
         }
     }
 
@@ -185,9 +185,9 @@ class DeviceSystemMonitor(private val context: Context) {
             val stat = StatFs(Environment.getDataDirectory().path)
             val bytes = stat.availableBlocksLong * stat.blockSizeLong
             val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
-            (Math.round(gb * 10.0) / 10.0).coerceAtLeast(1.0)
+            (Math.round(gb * 10.0) / 10.0).coerceAtLeast(0.0)
         } catch (_: Exception) {
-            42.6
+            0.0
         }
     }
 
