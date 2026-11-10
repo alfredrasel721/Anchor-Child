@@ -117,7 +117,7 @@ fun C03TodayScreenTimeScreen(
                             shape = RoundedCornerShape(50)
                         ) {
                             Text(
-                                text = "ACTIVE MODE: ${child.currentMode.uppercase()}",
+                                text = "ACTIVE MODE: ${child.currentMode.uppercase}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StitchSecondary,
                                 fontWeight = FontWeight.ExtraBold,
@@ -649,7 +649,7 @@ fun C05RestrictionReasonScreen(
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "C-05 • FRIENDLY SCHEDULE PAUSE",
+                            text = "• FRIENDLY SCHEDULE PAUSE",
                             style = MaterialTheme.typography.labelSmall,
                             color = StatusPendingAmber,
                             fontWeight = FontWeight.ExtraBold,
@@ -725,7 +725,7 @@ fun C05RestrictionReasonScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Ask Mom or Dad for Bonus Time (C-06)")
+                        Text("Ask Mom or Dad for Bonus Time")
                     }
 
                     OutlinedButton(

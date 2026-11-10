@@ -361,7 +361,7 @@ fun AnchorChildAppRoot(
                         Text(
                             text = "Household: ${uiState.household.familyName} (${uiState.household.familyId})\n" +
                                 "Active Child: ${uiState.activeChild.name} (${uiState.activeChild.childId})\n" +
-                                "Account: ${uiState.currentUser?.email ?: "Not signed in (Using offline/seeded household)"}",
+                                "Account: ${uiState.currentUser?.email ?:"Not signed in (Using offline/seeded household)"}",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -406,7 +406,7 @@ fun AnchorChildAppRoot(
                         .testTag("modal_open_pairing_button"),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Open Pairing Code Setup (C-01)")
+                    Text("Open Pairing Code Setup")
                 }
                 Spacer(modifier = Modifier.height(20.dp))
             }

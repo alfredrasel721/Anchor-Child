@@ -116,7 +116,7 @@ fun C08SosEmergencyCheckInScreen(
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "C-08 • EMERGENCY SOS & SAFE CHECK-IN",
+                            text = "• EMERGENCY SOS & SAFE CHECK-IN",
                             style = MaterialTheme.typography.labelSmall,
                             color = StatusFailedCrimson,
                             fontWeight = FontWeight.ExtraBold,
@@ -219,7 +219,7 @@ fun C08SosEmergencyCheckInScreen(
                             OutlinedButton(
                                 onClick = {
                                     val primaryPhone = uiState.guardians.firstOrNull()?.emailOrPhone ?: "+15552348891"
-                                    val body = "ANCHOR SOS (${child.name}): I need help at ${child.locationLabel} " +
+                                    val body = "ANCHOR SOS (${child.name}): I need help at ${child.locationLabel}" +
                                         "(GPS ${child.latitude}, ${child.longitude}) • Battery ${child.batteryLevel}%."
                                     try {
                                         context.startActivity(

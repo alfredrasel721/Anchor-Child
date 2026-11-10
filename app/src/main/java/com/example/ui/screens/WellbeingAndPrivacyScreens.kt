@@ -100,7 +100,7 @@ fun C10MyActivityWellbeingScreen(
                             shape = RoundedCornerShape(50)
                         ) {
                             Text(
-                                text = "C-10 • PERSONAL DIGITAL WELLBEING",
+                                text = "• PERSONAL DIGITAL WELLBEING",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StitchSecondary,
                                 fontWeight = FontWeight.ExtraBold,
@@ -260,7 +260,7 @@ fun C10MyActivityWellbeingScreen(
                             .testTag("c10_open_tasks_button"),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("View Shared Tasks & Rewards (C-09)")
+                        Text("View Shared Tasks & Rewards")
                     }
                 }
             }
@@ -339,7 +339,7 @@ fun C11PrivacySharingDashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "C-11 • Privacy & Sharing Matrix",
+                                text = "• Privacy & Sharing Matrix",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -456,7 +456,7 @@ fun C11PrivacySharingDashboardScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = StitchPrimary),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Filter Rules (C-12)")
+                            Text("Filter Rules")
                         }
                         OutlinedButton(
                             onClick = { onNavigate(ChildScreenId.C02_PERMISSION_EDUCATION) },
@@ -465,7 +465,7 @@ fun C11PrivacySharingDashboardScreen(
                                 .testTag("c11_open_c02_permissions_button"),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Permissions (C-02)")
+                            Text("Permissions")
                         }
                     }
 
@@ -482,7 +482,7 @@ fun C11PrivacySharingDashboardScreen(
                                 .testTag("c11_open_c13_consent_button"),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Live Consent (C-13)")
+                            Text("Live Consent")
                         }
                         OutlinedButton(
                             onClick = { onNavigate(ChildScreenId.C15_OFFLINE_SYNC_HELP) },
@@ -491,7 +491,7 @@ fun C11PrivacySharingDashboardScreen(
                                 .testTag("c11_open_c15_offline_button"),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Offline Sync (C-15)")
+                            Text("Offline Sync")
                         }
                     }
                 }

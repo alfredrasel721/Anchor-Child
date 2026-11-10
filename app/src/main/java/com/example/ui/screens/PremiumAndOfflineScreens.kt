@@ -114,7 +114,7 @@ fun C12PremiumFiltersDisclosureScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "C-12 • Safety & Filter Disclosures",
+                                text = "• Safety & Filter Disclosures",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -200,10 +200,10 @@ fun C12PremiumFiltersDisclosureScreen(
                         )
                     }
                     Text(
-                        text = "• Discord DMs: ${if (config.discordDmWhitelistOnly) "Friends Whitelist Only" else "Standard"}\n" +
-                            "• Roblox Chat: ${if (config.robloxChatFiltered) "Filtered Safe Chat" else "Standard"}\n" +
-                            "• WhatsApp Unknown Senders: ${if (config.whatsappUnknownBlocked) "Blocked" else "Allowed"}\n" +
-                            "• YouTube Restricted Mode: ${if (config.youtubeRestrictedMode) "Enforced" else "Off"}",
+                        text = "• Discord DMs: ${if (config.discordDmWhitelistOnly)"Friends Whitelist Only"else"Standard"}\n" +
+                            "• Roblox Chat: ${if (config.robloxChatFiltered)"Filtered Safe Chat"else"Standard"}\n" +
+                            "• WhatsApp Unknown Senders: ${if (config.whatsappUnknownBlocked)"Blocked"else"Allowed"}\n" +
+                            "• YouTube Restricted Mode: ${if (config.youtubeRestrictedMode)"Enforced"else"Off"}",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -284,7 +284,7 @@ fun C12PremiumFiltersDisclosureScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Audit Code: ${config.liveSessionAuditCode} • Every live check-in requires your explicit consent (C-13) and shows an instant STOP button (C-14).",
+                        text = "Audit Code: ${config.liveSessionAuditCode} • Every live check-in requires your explicit consent and shows an instant STOP button .",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -299,7 +299,7 @@ fun C12PremiumFiltersDisclosureScreen(
                                 label = { Text(mod.badgeText, style = MaterialTheme.typography.labelSmall) },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .testTag("c12_test_live_${mod.name.lowercase()}")
+                                    .testTag("c12_test_live_${mod.name.lowercase}")
                             )
                         }
                     }
@@ -393,7 +393,7 @@ fun C13IncomingLiveConsentScreen(
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "C-13 • EXPLICIT CHILD AUTHORIZATION REQUIRED",
+                            text = "• EXPLICIT CHILD AUTHORIZATION REQUIRED",
                             style = MaterialTheme.typography.labelSmall,
                             color = StatusPendingAmber,
                             fontWeight = FontWeight.ExtraBold,
@@ -598,7 +598,7 @@ fun C14ActiveLiveSessionScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (streaming) "C-14 • LIVE ${session.modality.label.uppercase()} ACTIVE" else "C-14 • CONSENT RECORDED • NOT STREAMING",
+                                text = if (streaming) "• LIVE ${session.modality.label.uppercase} ACTIVE" else "• CONSENT RECORDED • NOT STREAMING",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StatusFailedCrimson,
                                 fontWeight = FontWeight.ExtraBold
@@ -638,7 +638,7 @@ fun C14ActiveLiveSessionScreen(
                                 text = if (streaming) {
                                     "• Modality: ${session.modality.label} (${session.modality.badgeText})\n" +
                                         "• Started At: ${session.startedAtLabel}\n" +
-                                        "• Microphone Status: ${if (session.audioMutedByChild) "Muted by You" else "Active"}\n" +
+                                        "• Microphone Status: ${if (session.audioMutedByChild)"Muted by You"else"Active"}\n" +
                                         "• Bilateral Audit ID: ${session.sessionId}"
                                 } else {
                                     "• Consent recorded for ${session.modality.label}.\n" +
@@ -699,7 +699,7 @@ fun C14ActiveLiveSessionScreen(
                             .testTag("c14_back_privacy_button"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Return to Privacy Dashboard (C-11)")
+                        Text("Return to Privacy Dashboard")
                     }
                 }
             }
@@ -748,7 +748,7 @@ fun C15OfflineSyncHelpScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "C-15 • Offline Sync & Resilience",
+                                    text = "• Offline Sync & Resilience",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -909,7 +909,7 @@ fun C15OfflineSyncHelpScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = StatusFailedCrimson),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Open Emergency SOS & Carrier SMS (C-08)")
+                        Text("Open Emergency SOS & Carrier SMS")
                     }
                 }
             }

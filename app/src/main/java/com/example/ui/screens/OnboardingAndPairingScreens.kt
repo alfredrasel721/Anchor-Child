@@ -111,7 +111,7 @@ fun C01WelcomePairingScreen(
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            text = "C-01 • CHILD COMPANION ONBOARDING",
+                            text = "• CHILD COMPANION ONBOARDING",
                             style = MaterialTheme.typography.labelSmall,
                             color = StitchSecondary,
                             fontWeight = FontWeight.ExtraBold,
@@ -349,7 +349,7 @@ fun C01WelcomePairingScreen(
                                 .testTag("goto_c02_permissions_button"),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Review Android Permissions (C-02)")
+                            Text("Review Android Permissions")
                         }
                     } else {
                         Text(
@@ -410,7 +410,7 @@ fun C02PermissionEducationScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "C-02 • Permission Education & Status",
+                                text = "• Permission Education & Status",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
@@ -524,7 +524,7 @@ fun C02PermissionEducationScreen(
                 icon = Icons.Default.AccessibilityNew,
                 title = "4. Friendly App Limit Companion",
                 androidApiName = "AnchorAccessibilityService (Window State Only)",
-                whyItMatters = "Detects when a paused or bedtime-restricted app opens so Anchor can show the Next Unlock Window (C-05).",
+                whyItMatters = "Detects when a paused or bedtime-restricted app opens so Anchor can show the Next Unlock Window .",
                 privacyBoundary = "canRetrieveWindowContent is FALSE. Anchor cannot read screen text, chats, or passwords.",
                 isGranted = perms.accessibilityGranted,
                 buttonLabel = if (perms.accessibilityGranted) "Accessibility Companion Active" else "Configure Accessibility Service",
@@ -579,7 +579,7 @@ fun C02PermissionEducationScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Continue to Today's Screen Time (C-03)",
+                    text = "Continue to Today's Screen Time",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
