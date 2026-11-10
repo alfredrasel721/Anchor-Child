@@ -68,6 +68,11 @@ interface AnchorChildLocalDao {
     @Query("SELECT * FROM cached_app_rules ORDER BY category ASC, appName ASC")
     fun observeCachedAppRules(): Flow<List<CachedAppRuleEntity>>
 
+    // Used by the consent-enabled accessibility companion to apply only rules for
+    // this device's verified family/child pairing, including when offline.
+    @Query("SELECT * FROM cached_app_rules WHERE familyId = :familyId AND childId = :childId")
+    suspend fun getAppRulesForPairedChild(familyId: String, childId: String): List<CachedAppRuleEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAppRules(rules: List<CachedAppRuleEntity>)
 
